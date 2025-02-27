@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animal Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+</head>
+<body>
+    <div id="container">
+        <h1>AI Animal Chat</h1>
+        <!-- Webcam and image recognition elements -->
+        <div id="webcam-container"></div>
+        <div id="label-container"></div>
+        <button onclick="init()">Start Webcam</button>
+
+        <!-- Chat interface -->
+        <div id="chat-container"></div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Type your message...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <!-- Required scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

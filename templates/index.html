@@ -3,28 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Animal Chat</title>
+    <title>Smart Drive AI</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap" async defer></script>
 </head>
 <body>
     <div id="container">
-        <h1>AI Animal Chat</h1>
-        <!-- Webcam and image recognition elements -->
-        <div id="webcam-container"></div>
-        <div id="label-container"></div>
-        <button onclick="init()">Start Webcam</button>
+        <h1>AI Smart Drive</h1>
 
-        <!-- Chat interface -->
+        <!-- User Input Fields -->
+        <div id="input-fields">
+            <label for="start-location">Current Location:</label>
+            <input type="text" id="start-location" placeholder="Enter your current location">
+            
+            <label for="end-location">Destination:</label>
+            <input type="text" id="end-location" placeholder="Enter your destination">
+            
+            <button onclick="findSafeRoute()">Find Safe Route</button>
+        </div>
+
+        <!-- Map Container -->
+        <div id="map-container">
+            <div id="map"></div>
+        </div>
+
+        <!-- Chat Interface (Optional) -->
         <div id="chat-container"></div>
         <div id="input-container">
-            <input type="text" id="user-input" placeholder="Type your message...">
+            <input type="text" id="user-input" placeholder="Ask about a route...">
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
 
     <!-- Required scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

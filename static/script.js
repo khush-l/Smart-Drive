@@ -1,49 +1,107 @@
-// Teachable Machine model URL
-const URL = "https://teachablemachine.withgoogle.com/models/-q6hHNGve/";
-let model, webcam, labelContainer, maxPredictions;
-let currentAnimal = "";
+// Initialize map
+let map;
+let directionsService;
+let directionsRenderer;
 
-// Initialize webcam and model
-async function init() {
-    const modelURL = URL + "model.json";
-    const metadataURL = URL + "metadata.json";
+function initMap() {
+    // Initialize the map
+    map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 30.2672, lng: -97.7431 }, // Austin coordinates
+        zoom: 12
+    });
 
-    model = await tmImage.load(modelURL, metadataURL);
-    maxPredictions = model.getTotalClasses();
+    // Initialize directions service and renderer
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({
+        map: map
+    });
+}
 
-    // Setup webcam
-    const flip = true;
-    webcam = new tmImage.Webcam(200, 200, flip);
-    await webcam.setup();
-    await webcam.play();
-    window.requestAnimationFrame(loop);
+// Find safe route function
+function findSafeRoute() {
+    const startLocation = document.getElementById('start-location').value;
+    const endLocation = document.getElementById('end-location').value;
 
-    document.getElementById("webcam-container").appendChild(webcam.canvas);
-
-    // Setup label container
-    labelContainer = document.getElementById("label-container");
-    for (let i = 0; i < maxPredictions; i++) {
-        labelContainer.appendChild(document.createElement("div"));
+    if (!startLocation || !endLocation) {
+        alert('Please enter both start and end locations');
+        return;
     }
-}
 
-// Main prediction loop
-async function loop() {
-    webcam.update();
-    await predict();
-    window.requestAnimationFrame(loop);
-}
-
-// Predict function
-async function predict() {
-    const prediction = await model.predict(webcam.canvas);
-    for (let i = 0; i < maxPredictions; i++) {
-        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-        labelContainer.childNodes[i].innerHTML = classPrediction;
-        if (prediction[i].probability > 0.5) {
-            currentAnimal = prediction[i].className;
+    // Show loading state
+    document.getElementById('map-container').style.opacity = '0.5';
+    
+    // Make request to backend for route analysis
+    fetch('/analyze_route', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            start: startLocation,
+            end: endLocation
+        }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            return;
         }
-    }
+        
+        // Display route on map
+        displayRoute(data.routes);
+        
+        // Display route details
+        displayRouteDetails(data.route_details);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while finding the route');
+    })
+    .finally(() => {
+        document.getElementById('map-container').style.opacity = '1';
+    });
+}
+
+// Display route on map
+function displayRoute(routes) {
+    const request = {
+        origin: routes[0].legs[0].start_address,
+        destination: routes[0].legs[0].end_address,
+        travelMode: 'DRIVING'
+    };
+
+    directionsService.route(request, (result, status) => {
+        if (status === 'OK') {
+            directionsRenderer.setDirections(result);
+        } else {
+            alert('Could not find route: ' + status);
+        }
+    });
+}
+
+// Display route details
+function displayRouteDetails(routeDetails) {
+    const chatContainer = document.getElementById('chat-container');
+    chatContainer.innerHTML = ''; // Clear previous messages
+
+    // Sort routes by safety score (highest first)
+    routeDetails.sort((a, b) => b.safety_score - a.safety_score);
+
+    routeDetails.forEach((route, index) => {
+        const message = `Route ${index + 1}:\n` +
+            `Safety Score: ${route.safety_score.toFixed(2)}/10\n` +
+            `Duration: ${route.duration.toFixed(1)} minutes\n` +
+            `Distance: ${route.distance}\n` +
+            `First few steps:\n${route.steps.join('\n')}`;
+        
+        addMessageToChat(message, 'bot');
+    });
+
+    // Add a message about the safest route
+    const safestRoute = routeDetails[0];
+    addMessageToChat(`\nRecommended Route: Route 1 with Safety Score ${safestRoute.safety_score.toFixed(2)}/10, ` +
+        `estimated time ${safestRoute.duration.toFixed(1)} minutes.`, 'bot');
 }
 
 // Send message function
@@ -59,8 +117,7 @@ function sendMessage() {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            message: userInput,
-            animalType: currentAnimal
+            message: userInput
         }),
     })
     .then(response => response.json())
@@ -69,6 +126,7 @@ function sendMessage() {
     })
     .catch((error) => {
         console.error('Error:', error);
+        addMessageToChat('Sorry, an error occurred.', 'bot');
     });
 
     document.getElementById("user-input").value = "";
@@ -79,7 +137,7 @@ function addMessageToChat(message, sender) {
     const chatContainer = document.getElementById("chat-container");
     const messageElement = document.createElement("div");
     messageElement.classList.add("message", sender + "-message");
-    messageElement.textContent = message;
+    messageElement.innerHTML = message.replace(/\n/g, '<br>'); // Convert newlines to <br> tags
     chatContainer.appendChild(messageElement);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }

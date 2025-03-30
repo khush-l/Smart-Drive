@@ -1,6 +1,6 @@
 # Smart Drive
 
-A route safety analysis tool that uses machine learning to evaluate the safety of different driving routes.
+A route safety analysis tool that uses an AI model to evaluate the safety of different driving routes.
 
 ## Setup
 

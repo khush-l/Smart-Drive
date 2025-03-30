@@ -33,7 +33,7 @@ A route safety analysis tool that uses an AI model to evaluate the safety of dif
 
 Run the main script:
 ```bash
-python Route_Safety.py
+python App.py
 ```
 
 ## Important Notes

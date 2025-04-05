@@ -4,6 +4,7 @@ import openai
 import os
 from dotenv import load_dotenv
 from Route_Safety import get_google_routes, calculate_safety_score, train_model, identify_crash_hotspots, load_crash_data
+import logging
 
 # Load environment variables
 load_dotenv()
@@ -31,7 +32,7 @@ print("Model training complete!")
 # Home route
 @app.route('/')
 def home():
-    return render_template('index.html')
+    return render_template('index.html', google_maps_api_key=google_maps_api_key)
 
 # Route analysis endpoint
 @app.route('/analyze_route', methods=['POST'])
@@ -131,43 +132,43 @@ def chat():
         "content": initial_prompt
     }] + session['conversation']
 
-        logger.debug(f"Preparing to call OpenAI API with {len(messages)} messages")
+    logger.debug(f"Preparing to call OpenAI API with {len(messages)} messages")
 
-        try:
-            # Make API call to OpenAI
-            logger.debug("Calling OpenAI API")
-            response = openai.chat.completions.create(
-                model="gpt-3.5-turbo-1106",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=500
-            )
-            logger.debug("Successfully received OpenAI API response")
-            
-            # Extract the content from the response
-            gpt_response = response.choices[0].message.content
-            logger.debug(f"Generated response length: {len(gpt_response)}")
+    try:
+        # Make API call to OpenAI
+        logger.debug("Calling OpenAI API")
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo-1106",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
+        logger.debug("Successfully received OpenAI API response")
+        
+        # Extract the content from the response
+        gpt_response = response.choices[0].message.content
+        logger.debug(f"Generated response length: {len(gpt_response)}")
 
-            # Append the GPT response to the conversation history
-            session['conversation'].append({
-                "role": "assistant",
-                "content": gpt_response
-            })
+        # Append the GPT response to the conversation history
+        session['conversation'].append({
+            "role": "assistant",
+            "content": gpt_response
+        })
 
-            # Keep conversation history limited to last 10 messages to prevent session bloat
-            if len(session['conversation']) > 10:
-                logger.debug("Trimming conversation history")
-                session['conversation'] = session['conversation'][-10:]
+        # Keep conversation history limited to last 10 messages to prevent session bloat
+        if len(session['conversation']) > 10:
+            logger.debug("Trimming conversation history")
+            session['conversation'] = session['conversation'][-10:]
 
-            return jsonify({'response': gpt_response})
+        return jsonify({'response': gpt_response})
 
-        except openai.APIError as e:
-            logger.error(f"OpenAI API Error: {str(e)}")
-            return jsonify({'error': f'OpenAI API Error: {str(e)}'}), 500
-            
-        except Exception as e:
-            logger.error(f"Unexpected error in OpenAI call: {str(e)}", exc_info=True)
-            return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+    except openai.APIError as e:
+        logger.error(f"OpenAI API Error: {str(e)}")
+        return jsonify({'error': f'OpenAI API Error: {str(e)}'}), 500
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in OpenAI call: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
 
     except Exception as e:
         logger.error(f"General error in chat endpoint: {str(e)}", exc_info=True)

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Drive AI</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
-    <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY&callback=initMap" async defer></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap" async defer></script>
 </head>
 <body>
     <div id="container">
@@ -22,12 +22,16 @@
             <button onclick="findSafeRoute()">Find Safe Route</button>
         </div>
 
-        <!-- Map Container -->
+        <!-- Map Container with Loading Indicator -->
         <div id="map-container">
-            <div id="map"></div>
+            <div id="map">
+                <div id="map-loading" style="display: none;">
+                    Loading map...
+                </div>
+            </div>
         </div>
 
-        <!-- Chat Interface (Optional) -->
+        <!-- Chat Interface -->
         <div id="chat-container"></div>
         <div id="input-container">
             <input type="text" id="user-input" placeholder="Ask about a route...">

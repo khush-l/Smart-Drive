@@ -106,6 +106,7 @@ def main():
         print(f"Error reading .env file: {e}")
         api_key = os.getenv('GOOGLE_MAPS_API_KEY')
     
+    # Debug logging for development
     print(f"Loaded API key: {api_key}")
     print(f"Loaded API key length: {len(api_key) if api_key else 0}")
     print(f"API key starts with: {api_key[:5] if api_key else 'None'}")

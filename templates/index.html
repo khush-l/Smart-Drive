@@ -4,14 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Drive AI</title>
+    
+    <!-- Link to custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap" async defer></script>
+    
+    <!-- Initialize initMap function before loading Google Maps API -->
+    <script>
+        // Define initMap in the global scope before loading the API
+        window.initMap = function() {
+            // This will be overridden by the actual implementation in script.js
+            console.log('Map initialization started');
+        };
+
+        // Function to load Google Maps API
+        function loadGoogleMapsAPI() {
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions`;
+            script.async = true;
+            script.defer = true;
+            script.onerror = function() {
+                console.error('Failed to load Google Maps API');
+                // You could add a fallback or error message here
+            };
+            document.head.appendChild(script);
+        }
+
+        // Load the API when the DOM is ready
+        document.addEventListener('DOMContentLoaded', loadGoogleMapsAPI);
+    </script>
 </head>
 <body>
+    <!-- Main container for all content -->
     <div id="container">
+        <!-- Page header -->
         <h1>AI Smart Drive</h1>
 
-        <!-- User Input Fields -->
+        <!-- User input section for route planning -->
         <div id="input-fields">
             <label for="start-location">Current Location:</label>
             <input type="text" id="start-location" placeholder="Enter your current location">
@@ -22,7 +50,7 @@
             <button onclick="findSafeRoute()">Find Safe Route</button>
         </div>
 
-        <!-- Map Container with Loading Indicator -->
+        <!-- Map container with loading indicator -->
         <div id="map-container">
             <div id="map">
                 <div id="map-loading" style="display: none;">
@@ -31,7 +59,7 @@
             </div>
         </div>
 
-        <!-- Chat Interface -->
+        <!-- Chat interface for AI assistant -->
         <div id="chat-container"></div>
         <div id="input-container">
             <input type="text" id="user-input" placeholder="Ask about a route...">
@@ -39,7 +67,7 @@
         </div>
     </div>
 
-    <!-- Required scripts -->
+    <!-- Load main JavaScript file -->
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

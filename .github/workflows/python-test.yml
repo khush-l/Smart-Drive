@@ -15,6 +15,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+    
+    - name: Show commit being tested
+      run: |
+        echo "Testing commit: ${{ github.sha }}"
+        git log -1 --pretty=format:"%h %s"
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4

@@ -1,6 +1,16 @@
 # Smart Drive
 
-A route safety analysis tool that uses an AI model to evaluate the safety of different driving routes.
+A route safety analysis tool that uses AI to evaluate the safety of different driving routes and provides real-time safety recommendations.
+
+## Features
+
+- Real-time route safety analysis using historical crash data
+- Multiple route options with safety scores
+- AI-powered chat assistant for route recommendations
+- Interactive map interface
+- Crash hotspot identification
+- Estimated travel times and distances
+- Route step-by-step instructions
 
 ## Setup
 
@@ -10,42 +20,85 @@ A route safety analysis tool that uses an AI model to evaluate the safety of dif
    cd Smart-Drive
    ```
 
-2. Install the required packages:
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install the required packages:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Get your Google Maps API key:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create a new project or select an existing one
-   - Enable the Directions API for your project
-   - Go to Credentials → Create Credentials → API Key
-   - Copy your new API key
+4. Get your API keys:
+   - **Google Maps API Key**:
+     - Go to [Google Cloud Console](https://console.cloud.google.com/)
+     - Create a new project or select an existing one
+     - Enable the Directions API
+     - Create an API key in Credentials
+   
+   - **OpenAI API Key**:
+     - Go to [OpenAI Platform](https://platform.openai.com/)
+     - Create an account or sign in
+     - Generate an API key in your account settings
 
-4. Set up your environment variables:
+5. Set up your environment variables:
    - Copy `.env.example` to `.env`:
      ```bash
      cp .env.example .env
      ```
-   - Open `.env` and replace `your_api_key_here` with your actual Google Maps API key
+   - Open `.env` and add your API keys:
+     ```
+     GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+     OPENAI_API_KEY=your_openai_api_key
+     
+     ```
 
 ## Usage
 
-Run the main script:
-```bash
-python App.py
-```
+1. Start the Flask application:
+   ```bash
+   python app.py
+   ```
+
+2. Open your web browser and navigate to:
+   ```
+   http://localhost:8080
+   ```
+
+3. Enter your starting and destination locations to get route analysis.
 
 ## Important Notes
 
-- The Google Maps API has a free tier with generous limits for personal use
-- Each user needs their own API key to use the software
-- Never share your API key or commit it to version control
+- The application requires both Google Maps API and OpenAI API keys
+- Google Maps API has a free tier with generous limits for personal use
+- OpenAI API usage is billed based on token usage
+- Never share your API keys or commit them to version control
 - The `.env` file is already in `.gitignore` to prevent accidental commits
 
-## Features
+## Project Structure
 
-- Analyzes multiple route options between locations
-- Calculates safety scores based on historical crash data
-- Provides estimated travel times
-- Recommends the safest route while considering travel time
+```
+Smart-Drive/
+├── app.py                 # Main Flask application
+├── Route_Safety.py        # Route analysis and safety scoring
+├── requirements.txt       # Python dependencies
+├── static/               # Static files (CSS, JS)
+├── templates/            # HTML templates
+├── topic_prompts/        # AI chat prompts
+├── trainedModel.joblib   # Trained safety model
+└── data.csv             # Historical crash data
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

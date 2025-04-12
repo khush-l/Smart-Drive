@@ -99,3 +99,8 @@ Smart-Drive/
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> 05e0e97f09a5de4a5431905e2e75b4864b7399e4

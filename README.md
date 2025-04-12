@@ -1,6 +1,7 @@
 # Smart Drive
 
-A route safety analysis tool that uses AI to evaluate the safety of different driving routes and provides real-time safety recommendations.
+A route safety analysis tool that uses an ML model to evaluate the safety of different driving routes.
+
 
 ## Features
 
@@ -52,7 +53,7 @@ A route safety analysis tool that uses AI to evaluate the safety of different dr
      ```
      GOOGLE_MAPS_API_KEY=your_google_maps_api_key
      OPENAI_API_KEY=your_openai_api_key
-     
+
      ```
 
 ## Usage
@@ -98,7 +99,3 @@ Smart-Drive/
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.

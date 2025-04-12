@@ -60,14 +60,14 @@ def analyze_route():
 
     # Validate input
     if not start_location or not end_location:
-        return jsonify({'error': 'Please provide both start and end locations'})
+        return jsonify({'error': 'Please provide both start and end locations'}), 400
 
     try:
         # Get routes from Google Maps API
         routes = get_google_routes(google_maps_api_key, start_location, end_location)
         
         if not routes:
-            return jsonify({'error': 'No routes found between the specified locations'})
+            return jsonify({'error': 'No routes found between the specified locations'}), 404
 
         # Calculate safety scores for each route
         safety_scores = []

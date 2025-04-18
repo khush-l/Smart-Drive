@@ -60,7 +60,6 @@ tests/
 topic_prompts/
   initial_prompt.txt
   voice_route_demo_prompt.txt
---output
 .gitignore
 app.py
 README.md
@@ -72,19 +71,6 @@ testing.ipynb
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="--output">
-📦 Repomix v0.3.1
-
-No custom config found at repomix.config.json or global config at /home/codespace/.config/repomix/repomix.config.json.
-You can add a config file for additional settings. Please check https://github.com/yamadashy/repomix for more information.
-✖ Error during packing
-
-
-Need help?
-• File an issue on GitHub: https://github.com/yamadashy/repomix/issues
-• Join our Discord community: https://discord.gg/wNYzTwZFku
-</file>
 
 <file path="tests/__init__.py">
 # This file makes the tests directory a Python package

@@ -16,10 +16,10 @@
             console.log('Map initialization started');
         };
 
-        // Function to load Google Maps API
+        // Function to load Google Maps API (including geometry library)
         function loadGoogleMapsAPI() {
             const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions`;
+            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions,geometry`;
             script.async = true;
             script.defer = true;
             script.onerror = function() {
@@ -48,6 +48,7 @@
             
             <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
             <button id="voice-button" onclick="startVoiceRoute()">Start Voice Route</button>
+            <button id="simulate-drive" disabled>Simulate Drive</button>
 
             <label for="voice-file">Upload Voice Command:</label>
             <input type="file" id="voice-file" accept="audio/*">

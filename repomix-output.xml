@@ -59,7 +59,9 @@ tests/
   test_routes.py
 topic_prompts/
   initial_prompt.txt
+  voice_route_demo_prompt.txt
 .gitignore
+app.py
 README.md
 requirements-test.txt
 requirements.txt
@@ -210,19 +212,27 @@ Example questions users may ask:
 Always respond with helpful and respectful language, even if the question is unclear. Your goal is to educate and assist users while demonstrating the value of the SmartDrive AI system.
 </file>
 
-<file path="requirements.txt">
-flask>=3.0.0
-flask-session>=0.6.0
-openai>=1.0.0
-pandas>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.3.0
-geopy>=2.3.0
-shapely>=2.0.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-joblib>=1.3.0
-Werkzeug>=3.0.0
+<file path="topic_prompts/voice_route_demo_prompt.txt">
+# topic_prompts/voice_route_demo_prompt.txt
+
+### System Message
+You are SmartDrive Voice Assistant, a voice‑first GPS‑driven safety companion. For each incoming position update:
+- Load crash hotspots from output_files/high_crash_zones.geojson and apply a 50 m buffer.
+- If the coordinate is inside or within 50 m of a hotspot, respond with a concise warning:
+  “Alert: High‑crash zone ahead. Proceed with caution.”
+- Otherwise, respond with a brief navigation update, e.g.:
+  “Proceed straight for 200 meters.”
+- Keep each response under 20 words, plain language, TTS‑friendly.
+- Use deterministic settings (temperature=0, top_p=0.1).
+- Output **only** the spoken text (no JSON or markup).
+
+### User Message
+Coordinate update:
+  latitude: {latitude}
+  longitude: {longitude}
+Previous coordinate:
+  latitude: {prev_latitude}
+  longitude: {prev_longitude}
 </file>
 
 <file path="tests/test_routes.py">
@@ -391,6 +401,22 @@ pytest-mock==3.12.0
 python-dotenv==1.0.0
 </file>
 
+<file path="requirements.txt">
+flask>=3.0.0
+flask-session>=0.6.0
+openai>=1.0.0
+openai-whisper>=1.0.0  # Added for voice transcription support
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+geopy>=2.3.0
+shapely>=2.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+joblib>=1.3.0
+Werkzeug>=3.0.0
+</file>
+
 <file path=".github/workflows/python-test.yml">
 name: Python Tests
 
@@ -460,6 +486,7 @@ import pandas as pd
 import numpy as np
 import json
 import requests
+import openai
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
@@ -514,23 +541,39 @@ def train_model(hotspot_data):
 # 2. Fetching Routes and Evaluating with AI Model
 
 def get_google_routes(api_key, origin, destination):
+    """
+    Fetch driving routes (including alternatives) from Google Directions API
+    and log both HTTP and API-level status messages for debugging.
+    """
     base_url = "https://maps.googleapis.com/maps/api/directions/json"
     params = {
-        "origin": origin,
+        "origin":      origin,
         "destination": destination,
-        "mode": "driving",
+        "mode":        "driving",
         "alternatives": "true",
-        "key": api_key
+        "key":         api_key
     }
 
     response = requests.get(base_url, params=params)
 
-    if response.status_code == 200:
-        routes = response.json().get("routes", [])
+    try:
+        data = response.json()
+    except ValueError:
+        print(f"Failed to parse JSON (HTTP {response.status_code}): {response.text}")
+        return []
+
+    api_status = data.get("status")
+    error_message = data.get("error_message")
+    print(f"Google Maps API status: {api_status}")
+    if error_message:
+        print(f"Google Maps error_message: {error_message}")
+
+    if response.status_code == 200 and api_status == "OK":
+        routes = data.get("routes", [])
         print(f"Found {len(routes)} route options.")
         return routes
     else:
-        print(f"Error: {response.status_code} - {response.text}")
+        print(f"Directions request failed: HTTP {response.status_code}, API status = {api_status}")
         return []
 
 
@@ -539,21 +582,97 @@ def calculate_safety_score(route, model):
     total_duration = 0
 
     for leg in route['legs']:
-        total_duration += leg['duration']['value'] / 60  # Convert to minutes
+        total_duration += leg['duration']['value'] / 60  # minutes
         for step in leg['steps']:
             lat = step['end_location']['lat']
             lng = step['end_location']['lng']
-            safety_score = model.predict(np.array([[lat, lng]]))[0]
+            df = pd.DataFrame([[lat, lng]], columns=['lat_bin', 'lng_bin'])
+            safety_score = model.predict(df)[0]
             scores.append(safety_score)
 
     avg_score = np.mean(scores) if scores else 0
     return min(max(10 - avg_score, 1), 10), total_duration
 
 
+# --- New voice-first functionality ---
+
+def load_hotspot_polygons(geojson_path="output_files/high_crash_zones.geojson"):
+    """
+    Load crash-hotspot polygons from a GeoJSON file.
+    """
+    polygons = []
+    try:
+        with open(geojson_path) as f:
+            gj = json.load(f)
+        for feat in gj.get("features", []):
+            coords = feat["geometry"]["coordinates"][0]
+            poly = Polygon([(lng, lat) for lat, lng in coords])
+            polygons.append(poly)
+    except Exception as e:
+        print(f"Error loading hotspot polygons: {e}")
+    return polygons
+
+# Pre-load hotspot polygons once
+_HOTSPOT_POLYGONS = load_hotspot_polygons()
+
+
+def is_in_hotspot(lat, lng, buffer_m=50):
+    """
+    Check if a coordinate lies within or near (buffer_m) any crash-hotspot polygon.
+    """
+    buffer_deg = buffer_m / 111320.0  # approximate meters to degrees
+    point = Point(lng, lat)
+    for poly in _HOTSPOT_POLYGONS:
+        if poly.buffer(buffer_deg).contains(point):
+            return True
+    return False
+
+
+def generate_voice_update(lat, lng, prev_lat, prev_lng, model_name="gpt-3.5-turbo"):
+    """
+    Generate a concise, TTS-friendly voice update for the given coordinate.
+    If within a hotspot, return a warning immediately; otherwise, call the LLM.
+    """
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+
+    # Pre-check crash zone
+    if is_in_hotspot(lat, lng):
+        return "Alert: High‑crash zone ahead. Proceed with caution."
+
+    # Read and split the prompt template
+    prompt_file = "topic_prompts/voice_route_demo_prompt.txt"
+    with open(prompt_file) as f:
+        content = f.read()
+    system_part, user_part = content.split("### User Message")
+    system_content = system_part.replace("### System Message", "").strip()
+    user_template = user_part.strip()
+
+    # Fill in dynamic coordinates
+    user_content = user_template.format(
+        latitude=lat,
+        longitude=lng,
+        prev_latitude=prev_lat,
+        prev_longitude=prev_lng
+    )
+
+    messages = [
+        {"role": "system", "content": system_content},
+        {"role": "user",   "content": user_content}
+    ]
+
+    resp = openai.chat.completions.create(
+        model=model_name,
+        messages=messages,
+        temperature=0,
+        top_p=0.1
+    )
+    return resp.choices[0].message.content.strip()
+
+# --- End voice-first functionality ---
+
 # Putting it all together
 
 def main():
-    # Try to get the API key directly from the file first
     try:
         with open('.env', 'r') as f:
             for line in f:
@@ -563,35 +682,29 @@ def main():
     except Exception as e:
         print(f"Error reading .env file: {e}")
         api_key = os.getenv('GOOGLE_MAPS_API_KEY')
-    
-    # Debug logging for development
+
     print(f"Loaded API key: {api_key}")
     print(f"Loaded API key length: {len(api_key) if api_key else 0}")
     print(f"API key starts with: {api_key[:5] if api_key else 'None'}")
-    
+
     if not api_key:
         raise ValueError("GOOGLE_MAPS_API_KEY environment variable is not set. Please check your .env file.")
-    
     if api_key == "your_api_key_here":
         raise ValueError("You still have the placeholder API key in your .env file. Please replace it with your actual API key.")
-        
 
-    # 3. Crash Data Processing and Model Training
     crash_data_file = 'data.csv'
-
     data = load_crash_data(crash_data_file)
     hotspot_data = identify_crash_hotspots(data)
     model = train_model(hotspot_data)
 
     routes = get_google_routes(api_key, "Austin, TX", "Houston, TX")
-    
     safety_scores_and_times = [calculate_safety_score(route, model) for route in routes]
-    
+
     for i, (route, (score, duration)) in enumerate(zip(routes, safety_scores_and_times)):
         print(f"Route {i + 1}: Safety Score {score:.2f}/10, Estimated Time: {duration:.2f} mins")
         print("Route Summary:")
         for leg in route['legs']:
-            for step in leg['steps'][:3]:  # Show first few steps for brevity
+            for step in leg['steps'][:3]:
                 print(f"  - {step['html_instructions']} ({step['distance']['text']}, {step['duration']['text']})")
             print("...")
 
@@ -601,267 +714,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-</file>
-
-<file path="static/script.js">
-/**
- * Smart Drive AI - Main JavaScript File
- * Handles map initialization, route finding, and chat functionality
- */
-
-// Global variables for map functionality
-let map;                    // Google Maps instance
-let directionsService;      // Google Maps Directions Service
-let directionsRenderer;     // Google Maps Directions Renderer
-
-/**
- * Initialize the Google Map
- * Called automatically when the Google Maps API loads
- */
-window.initMap = function() {
-    // Initialize the map centered on Austin, TX
-    map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 30.2672, lng: -97.7431 }, // Austin coordinates
-        zoom: 12
-    });
-
-    // Initialize directions service and renderer
-    directionsService = new google.maps.DirectionsService();
-    directionsRenderer = new google.maps.DirectionsRenderer({
-        map: map
-    });
-}
-
-/**
- * Display a route on the map
- * @param {Object} route - The route data from Google Maps API
- */
-function displayRoute(route) {
-    if (!route || !route.legs || route.legs.length === 0) {
-        console.error('Invalid route data');
-        return;
-    }
-
-    // Create a DirectionsRequest object for the route
-    const request = {
-        origin: route.legs[0].start_address,
-        destination: route.legs[0].end_address,
-        travelMode: 'DRIVING'
-    };
-
-    // Get and display the route on the map
-    directionsService.route(request, function(result, status) {
-        if (status === 'OK') {
-            directionsRenderer.setDirections(result);
-        } else {
-            console.error('Directions request failed:', status);
-        }
-    });
-}
-
-/**
- * Display route details in the chat container
- * @param {Array} routeDetails - Array of route detail objects
- */
-function displayRouteDetails(routeDetails) {
-    const chatContainer = document.getElementById('chat-container');
-    
-    // Clear previous route details
-    chatContainer.innerHTML = '';
-    
-    // Add each route's details to the chat
-    routeDetails.forEach((detail, index) => {
-        const message = `Route ${index + 1}:\n` +
-                       `Safety Score: ${detail.safety_score}/10\n` +
-                       `Duration: ${detail.duration} minutes\n` +
-                       `Distance: ${detail.distance}\n` +
-                       `First steps:\n${detail.steps.join('\n')}`;
-        
-        addMessageToChat(message, 'bot');
-    });
-}
-
-/**
- * Find the safest route between two locations
- * Makes API call to backend and displays results
- */
-function findSafeRoute() {
-    // Get start and end locations from input fields
-    const startLocation = document.getElementById('start-location').value;
-    const endLocation = document.getElementById('end-location').value;
-
-    // Validate inputs
-    if (!startLocation || !endLocation) {
-        alert('Please enter both start and end locations');
-        return;
-    }
-
-    // Show loading state
-    document.getElementById('map-container').style.opacity = '0.5';
-    
-    // Make request to backend for route analysis
-    fetch('/analyze_route', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            start: startLocation,
-            end: endLocation
-        }),
-    })
-    .then(response => {
-        // Handle non-200 responses
-        if (!response.ok) {
-            return response.json().then(data => {
-                throw new Error(data.error || 'Network response was not ok');
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        // Handle backend errors
-        if (data.error) {
-            alert(data.error);
-            return;
-        }
-        
-        // Display route on map if available
-        if (data.routes && data.routes.length > 0) {
-            displayRoute(data.routes[0]); // Display the first route
-        }
-        
-        // Display route details if available
-        if (data.route_details && data.route_details.length > 0) {
-            displayRouteDetails(data.route_details);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('An error occurred while finding the route: ' + error.message);
-    })
-    .finally(() => {
-        // Reset loading state
-        document.getElementById('map-container').style.opacity = '1';
-    });
-}
-
-// Main prediction loop
-async function loop() {
-    webcam.update();
-    await predict();
-    window.requestAnimationFrame(loop);
-}
-
-// Predict function
-async function predict() {
-    const prediction = await model.predict(webcam.canvas);
-    for (let i = 0; i < maxPredictions; i++) {
-        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-        labelContainer.childNodes[i].innerHTML = classPrediction;
-        if (prediction[i].probability > 0.5) {
-            currentAnimal = prediction[i].className;
-        }
-    }
-}
-
-/**
- * Send a message to the AI chat
- * Handles user input and displays responses
- */
-function sendMessage() {
-    const userInput = document.getElementById("user-input");
-    const message = userInput.value.trim();
-    
-    // Don't send empty messages
-    if (message === "") return;
-
-    // Disable input and show loading state
-    userInput.disabled = true;
-    const sendButton = document.querySelector('#input-container button');
-    sendButton.disabled = true;
-    sendButton.textContent = 'Sending...';
-
-    // Add user message to chat
-    addMessageToChat(message, 'user');
-    userInput.value = "";
-
-    // Send to backend
-    fetch('/chat', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            message: message
-        }),
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(data => {
-                throw new Error(data.error || 'Network response was not ok');
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.error) {
-            console.error('Server error:', data.error);
-            addMessageToChat('Error: ' + data.error, 'bot');
-        } else {
-            addMessageToChat(data.response, 'bot');
-        }
-    })
-    .catch((error) => {
-        console.error('Error:', error);
-        addMessageToChat('Error: ' + error.message, 'bot');
-    })
-    .finally(() => {
-        // Re-enable input and button
-        userInput.disabled = false;
-        sendButton.disabled = false;
-        sendButton.textContent = 'Send';
-        userInput.focus();
-    });
-}
-
-/**
- * Add a message to the chat container
- * @param {string} message - The message text
- * @param {string} sender - 'user' or 'bot'
- */
-function addMessageToChat(message, sender) {
-    const chatContainer = document.getElementById("chat-container");
-    const messageElement = document.createElement("div");
-    messageElement.classList.add("message", sender + "-message");
-    messageElement.innerHTML = message.replace(/\n/g, '<br>'); // Convert newlines to <br> tags
-    chatContainer.appendChild(messageElement);
-    
-    // Scroll to the latest message
-    messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
-}
-
-/**
- * Initialize event listeners when the DOM is loaded
- */
-document.addEventListener('DOMContentLoaded', function() {
-    const userInput = document.getElementById("user-input");
-    const sendButton = document.querySelector('#input-container button');
-
-    // Enter key event listener for chat input
-    userInput.addEventListener("keypress", function(event) {
-        if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            sendMessage();
-        }
-    });
-
-    // Send button click event listener
-    sendButton.addEventListener("click", sendMessage);
-
-    // Display welcome message
-    addMessageToChat("Hello! I'm your Smart Drive AI assistant. I can help you find safe routes and answer questions about your journey. How can I help you today?", 'bot');
-});
 </file>
 
 <file path="testing.ipynb">
@@ -1314,6 +1166,262 @@ button:hover {
 }
 </file>
 
+<file path="static/script.js">
+/**
+ * Smart Drive AI - Main JavaScript File
+ * Handles map initialization, route finding, chat, and voice-first streaming
+ */
+
+// Global variables for map functionality
+let map;                    // Google Maps instance
+let directionsService;      // Google Maps Directions Service
+let directionsRenderer;     // Google Maps Directions Renderer
+
+/**
+ * Initialize the Google Map
+ * Called automatically when the Google Maps API loads
+ */
+window.initMap = function() {
+    map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 30.2672, lng: -97.7431 }, // Austin coordinates
+        zoom: 12
+    });
+    directionsService = new google.maps.DirectionsService();
+    directionsRenderer = new google.maps.DirectionsRenderer({ map: map });
+};
+
+/**
+ * Display a route on the map
+ * @param {Object} route - The route data from Google Maps API
+ */
+function displayRoute(route) {
+    if (!route || !route.legs || route.legs.length === 0) {
+        console.error('Invalid route data');
+        return;
+    }
+    const request = {
+        origin: route.legs[0].start_address,
+        destination: route.legs[0].end_address,
+        travelMode: 'DRIVING'
+    };
+    directionsService.route(request, function(result, status) {
+        if (status === 'OK') {
+            directionsRenderer.setDirections(result);
+        } else {
+            console.error('Directions request failed:', status);
+        }
+    });
+}
+
+/**
+ * Display route details in the chat container
+ * @param {Array} routeDetails - Array of route detail objects
+ */
+function displayRouteDetails(routeDetails) {
+    const chatContainer = document.getElementById('chat-container');
+    chatContainer.innerHTML = '';  // Clear previous
+    routeDetails.forEach((detail, index) => {
+        const message = `Route ${index + 1}:\n` +
+                        `Safety Score: ${detail.safety_score}/10\n` +
+                        `Duration: ${detail.duration} minutes\n` +
+                        `Distance: ${detail.distance}\n` +
+                        `First steps:\n${detail.steps.join('\n')}`;
+        addMessageToChat(message, 'bot');
+    });
+}
+
+/**
+ * Find the safest route between two locations
+ * Makes API call to backend and displays results
+ */
+function findSafeRoute() {
+    const startLocation = document.getElementById('start-location').value;
+    const endLocation = document.getElementById('end-location').value;
+    if (!startLocation || !endLocation) {
+        alert('Please enter both start and end locations');
+        return;
+    }
+    document.getElementById('map-container').style.opacity = '0.5';
+    fetch('/analyze_route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start: startLocation, end: endLocation })
+    })
+    .then(response => response.ok ? response.json() : response.json().then(err => { throw err; }))
+    .then(data => {
+        if (data.routes && data.routes.length > 0) displayRoute(data.routes[0]);
+        if (data.route_details) displayRouteDetails(data.route_details);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert(error.error || error);
+    })
+    .finally(() => {
+        document.getElementById('map-container').style.opacity = '1';
+    });
+}
+
+// Main prediction loop (legacy Teachable Machine code)
+async function loop() {
+    webcam.update();
+    await predict();
+    window.requestAnimationFrame(loop);
+}
+
+// Predict function (legacy Teachable Machine code)
+async function predict() {
+    const prediction = await model.predict(webcam.canvas);
+    for (let i = 0; i < maxPredictions; i++) {
+        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+        labelContainer.childNodes[i].innerHTML = classPrediction;
+        if (prediction[i].probability > 0.5) {
+            currentAnimal = prediction[i].className;
+        }
+    }
+}
+
+/**
+ * Send a message to the AI chat
+ * Handles user input and displays responses
+ */
+function sendMessage() {
+    const userInput = document.getElementById('user-input');
+    const message = userInput.value.trim();
+    if (message === '') return;
+    userInput.disabled = true;
+    const sendButton = document.querySelector('#input-container button');
+    sendButton.disabled = true;
+    sendButton.textContent = 'Sending...';
+
+    addMessageToChat(message, 'user');
+    userInput.value = '';
+
+    fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message })
+    })
+    .then(response => response.ok ? response.json() : response.json().then(err => { throw err; }))
+    .then(data => {
+        if (data.error) {
+            console.error('Server error:', data.error);
+            addMessageToChat('Error: ' + data.error, 'bot');
+        } else {
+            addMessageToChat(data.response, 'bot');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        addMessageToChat('Error: ' + (error.error || error), 'bot');
+    })
+    .finally(() => {
+        userInput.disabled = false;
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
+        userInput.focus();
+    });
+}
+
+/**
+ * Add a message to the chat container
+ * @param {string} message - The message text
+ * @param {string} sender - 'user' or 'bot'
+ */
+function addMessageToChat(message, sender) {
+    const chatContainer = document.getElementById('chat-container');
+    const messageElement = document.createElement('div');
+    messageElement.classList.add('message', sender + '-message');
+    messageElement.innerHTML = message.replace(/\n/g, '<br>');
+    chatContainer.appendChild(messageElement);
+    messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+/**
+ * Start voice-first streaming of updates via SSE-like fetch
+ */
+async function startVoiceRoute() {
+    const startLocation = document.getElementById('start-location').value;
+    const endLocation = document.getElementById('end-location').value;
+    if (!startLocation || !endLocation) {
+        alert('Please enter both start and end locations for voice route');
+        return;
+    }
+    document.getElementById('map-container').style.opacity = '0.5';
+    try {
+        const response = await fetch('/stream_route', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ start: startLocation, end: endLocation })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Stream failed');
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+            for (const part of parts) {
+                if (part.startsWith('data: ')) {
+                    try {
+                        const packet = JSON.parse(part.slice(6));
+                        handleVoicePacket(packet);
+                    } catch (e) {
+                        console.error('Parse SSE data', e);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Voice stream error', error);
+        alert('Voice stream error: ' + error.message);
+    } finally {
+        document.getElementById('map-container').style.opacity = '1';
+    }
+}
+
+/**
+ * Handle each streamed packet: display and speak
+ * @param {Object} packet - { text, latitude, longitude }
+ */
+function handleVoicePacket(packet) {
+    const text = packet.text;
+    addMessageToChat(text, 'bot');
+    const utterance = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utterance);
+}
+
+/**
+ * DOM loaded: bind event listeners
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    // Text-based route button (if given an ID)
+    const startBtn = document.getElementById('start-button');
+    if (startBtn) startBtn.addEventListener('click', findSafeRoute);
+    // Voice-based route button
+    const voiceBtn = document.getElementById('voice-button');
+    if (voiceBtn) voiceBtn.addEventListener('click', startVoiceRoute);
+
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.querySelector('#input-container button');
+    userInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    sendBtn.addEventListener('click', sendMessage);
+
+    // Initial welcome message
+    addMessageToChat("Hello! I'm your Smart Drive AI assistant. I can help you find safe routes and provide voice updates. How can I help you today?", 'bot');
+});
+</file>
+
 <file path="templates/index.html">
 <!DOCTYPE html>
 <html lang="en">
@@ -1341,7 +1449,6 @@ button:hover {
             script.defer = true;
             script.onerror = function() {
                 console.error('Failed to load Google Maps API');
-                // You could add a fallback or error message here
             };
             document.head.appendChild(script);
         }
@@ -1364,7 +1471,12 @@ button:hover {
             <label for="end-location">Destination:</label>
             <input type="text" id="end-location" placeholder="Enter your destination">
             
-            <button onclick="findSafeRoute()">Find Safe Route</button>
+            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
+            <button id="voice-button" onclick="startVoiceRoute()">Start Voice Route</button>
+
+            <label for="voice-file">Upload Voice Command:</label>
+            <input type="file" id="voice-file" accept="audio/*">
+            <button id="voice-upload-button">Send Voice Command</button>
         </div>
 
         <!-- Map container with loading indicator -->
@@ -1388,6 +1500,193 @@ button:hover {
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
+</file>
+
+<file path="app.py">
+from flask import Flask, render_template, request, jsonify, session, Response
+from flask_session import Session
+import openai
+import os
+from dotenv import load_dotenv
+from Route_Safety import (
+    get_google_routes,
+    calculate_safety_score,
+    train_model,
+    identify_crash_hotspots,
+    load_crash_data,
+    generate_voice_update
+)
+import logging
+import json
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize Flask application
+app = Flask(__name__)
+
+# Configure session management
+app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_TYPE"] = "filesystem"
+Session(app)
+
+# API Keys from environment
+openai.api_key = os.getenv('OPENAI_API_KEY')
+google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY')
+
+# Voice & transcription model configs
+VOICE_MODEL = os.getenv('VOICE_MODEL', 'gpt-3.5-turbo')
+WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'whisper-1')
+
+# Initialize the safety model on startup
+print("Loading crash data and training model...")
+crash_data = load_crash_data('data.csv')
+hotspot_data = identify_crash_hotspots(crash_data)
+safety_model = train_model(hotspot_data)
+print("Model training complete!")
+
+@app.route('/')
+def home():
+    return render_template('index.html', google_maps_api_key=google_maps_api_key)
+
+@app.route('/analyze_route', methods=['POST'])
+def analyze_route():
+    data = request.json
+    start_location = data.get('start')
+    end_location = data.get('end')
+    if not start_location or not end_location:
+        return jsonify({'error': 'Please provide both start and end locations'}), 400
+    try:
+        routes = get_google_routes(google_maps_api_key, start_location, end_location)
+        if not routes:
+            return jsonify({'error': 'No routes found between the specified locations'}), 404
+        route_details = []
+        for route in routes:
+            score, duration = calculate_safety_score(route, safety_model)
+            route_details.append({
+                'safety_score': score,
+                'duration': duration,
+                'distance': route['legs'][0]['distance']['text'],
+                'steps': [step['html_instructions'] for step in route['legs'][0]['steps'][:3]]
+            })
+        return jsonify({'routes': routes, 'route_details': route_details})
+    except Exception as e:
+        logger.error(f"Error analyzing route: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/stream_route', methods=['POST'])
+def stream_route():
+    """
+    Stream voice-first driving updates via Server-Sent Events.
+    Accepts JSON with either:
+      - 'gps_sequence': list of {latitude, longitude}
+      - or 'start' and 'end' to fetch a route and extract step coordinates.
+    """
+    data = request.json or {}
+    gps_sequence = data.get('gps_sequence')
+    if not gps_sequence:
+        start = data.get('start')
+        end = data.get('end')
+        if not start or not end:
+            return jsonify({'error': 'Provide gps_sequence or start and end locations'}), 400
+        routes = get_google_routes(google_maps_api_key, start, end)
+        if not routes:
+            return jsonify({'error': 'No routes found'}), 404
+        gps_sequence = [
+            {'latitude': step['end_location']['lat'], 'longitude': step['end_location']['lng']}
+            for step in routes[0]['legs'][0]['steps']
+        ]
+
+    def event_stream():
+        prev = gps_sequence[0]
+        for coord in gps_sequence:
+            lat = coord['latitude']
+            lng = coord['longitude']
+            update = generate_voice_update(lat, lng, prev['latitude'], prev['longitude'], model_name=VOICE_MODEL)
+            data_packet = {'text': update, 'latitude': lat, 'longitude': lng}
+            yield f"data: {json.dumps(data_packet)}\n\n"
+            prev = coord
+
+    return Response(event_stream(), mimetype='text/event-stream')
+
+@app.route('/voice_input', methods=['POST'])
+def voice_input():
+    """
+    Transcribe uploaded audio via Whisper and return the transcript.
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No audio file part'}), 400
+    file = request.files['file']
+    try:
+        transcript_resp = openai.Audio.transcribe(
+            model=WHISPER_MODEL,
+            file=file
+        )
+        text = transcript_resp.get('text', '')
+        return jsonify({'transcript': text})
+    except Exception as e:
+        logger.error(f"Whisper transcription failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/test_openai', methods=['GET'])
+def test_openai():
+    try:
+        logger.debug("Testing OpenAI API connection")
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Say 'Hello, testing'"}],
+            max_tokens=20
+        )
+        return jsonify({
+            'status': 'success',
+            'message': response.choices[0].message.content,
+            'api_key_set': bool(openai.api_key)
+        })
+    except Exception as e:
+        logger.error(f"OpenAI test failed: {e}")
+        return jsonify({'status':'error','error':str(e)}),500
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        user_message = request.json.get('message')
+        if not user_message:
+            return jsonify({'error':'No message provided'}),400
+        if 'conversation' not in session:
+            session['conversation'] = []
+        try:
+            with open('topic_prompts/initial_prompt.txt') as f:
+                initial_prompt = f.read()
+        except FileNotFoundError:
+            return jsonify({'error':'Initial prompt file not found'}),500
+        messages = [{"role":"system","content":initial_prompt}]
+        messages += session['conversation'][-10:]
+        messages.append({"role":"user","content":user_message})
+        resp = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
+        gpt_content = resp.choices[0].message.content
+        session['conversation'].append({"role":"assistant","content":gpt_content})
+        session.modified = True
+        return jsonify({'response':gpt_content})
+    except Exception as e:
+        logger.error(f"Chat endpoint error: {e}")
+        return jsonify({'error':str(e)}),500
+
+@app.route('/clear_session', methods=['GET'])
+def clear_session():
+    session.clear()
+    return jsonify({'status':'session cleared'})
+
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port=8080)
 </file>
 
 <file path="README.md">

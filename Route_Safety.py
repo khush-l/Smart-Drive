@@ -143,7 +143,7 @@ def generate_enhanced_instruction(html_instruction, lat, lng, model_name="gpt-3.
         "(under 15 words):\n\n"
         f"{html_instruction}"
     )
-    resp = openai.ChatCompletion.create(
+    resp = openai.chat.completions.create(
         model=model_name,
         messages=[{"role": "system", "content": prompt}],
         temperature=0,

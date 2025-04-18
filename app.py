@@ -147,7 +147,7 @@ def stream_route():
 def test_openai():
     try:
         logger.debug("Testing OpenAI API")
-        resp = openai.ChatCompletion.create(
+        resp = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=10

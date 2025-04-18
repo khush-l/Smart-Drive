@@ -24,7 +24,6 @@
             script.defer = true;
             script.onerror = function() {
                 console.error('Failed to load Google Maps API');
-                // You could add a fallback or error message here
             };
             document.head.appendChild(script);
         }
@@ -47,7 +46,12 @@
             <label for="end-location">Destination:</label>
             <input type="text" id="end-location" placeholder="Enter your destination">
             
-            <button onclick="findSafeRoute()">Find Safe Route</button>
+            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
+            <button id="voice-button" onclick="startVoiceRoute()">Start Voice Route</button>
+
+            <label for="voice-file">Upload Voice Command:</label>
+            <input type="file" id="voice-file" accept="audio/*">
+            <button id="voice-upload-button">Send Voice Command</button>
         </div>
 
         <!-- Map container with loading indicator -->

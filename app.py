@@ -1,16 +1,18 @@
-"""
-Smart Drive AI - Backend Application
-Handles route analysis, safety scoring, and AI chat functionality
-"""
-
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response
 from flask_session import Session
 import openai
 import os
 from dotenv import load_dotenv
-from Route_Safety import get_google_routes, calculate_safety_score, train_model, identify_crash_hotspots, load_crash_data
+from Route_Safety import (
+    get_google_routes,
+    calculate_safety_score,
+    train_model,
+    identify_crash_hotspots,
+    load_crash_data,
+    generate_voice_update
+)
 import logging
-from openai import OpenAI
+import json
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -27,12 +29,13 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-# Load API keys from environment variables
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# API Keys from environment
+openai.api_key = os.getenv('OPENAI_API_KEY')
 google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY')
 
-# Set Flask secret key for session security
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'supersecretkey')
+# Voice & transcription model configs
+VOICE_MODEL = os.getenv('VOICE_MODEL', 'gpt-3.5-turbo')
+WHISPER_MODEL = os.getenv('WHISPER_MODEL', 'whisper-1')
 
 # Initialize the safety model on startup
 print("Loading crash data and training model...")
@@ -43,178 +46,139 @@ print("Model training complete!")
 
 @app.route('/')
 def home():
-    """
-    Home route - Renders the main page with the map interface
-    """
     return render_template('index.html', google_maps_api_key=google_maps_api_key)
 
 @app.route('/analyze_route', methods=['POST'])
 def analyze_route():
-    """
-    Route analysis endpoint
-    Takes start and end locations, finds routes, and calculates safety scores
-    """
     data = request.json
     start_location = data.get('start')
     end_location = data.get('end')
-
-    # Validate input
     if not start_location or not end_location:
         return jsonify({'error': 'Please provide both start and end locations'}), 400
-
     try:
-        # Get routes from Google Maps API
         routes = get_google_routes(google_maps_api_key, start_location, end_location)
-        
         if not routes:
             return jsonify({'error': 'No routes found between the specified locations'}), 404
-
-        # Calculate safety scores for each route
-        safety_scores = []
-        durations = []
+        route_details = []
         for route in routes:
             score, duration = calculate_safety_score(route, safety_model)
-            safety_scores.append(score)
-            durations.append(duration)
-
-        # Prepare route details for frontend display
-        route_details = []
-        for route, score, duration in zip(routes, safety_scores, durations):
             route_details.append({
                 'safety_score': score,
                 'duration': duration,
                 'distance': route['legs'][0]['distance']['text'],
-                'steps': [step['html_instructions'] for step in route['legs'][0]['steps'][:3]]  # First 3 steps
+                'steps': [step['html_instructions'] for step in route['legs'][0]['steps'][:3]]
             })
-
-        return jsonify({
-            'routes': routes,
-            'route_details': route_details
-        })
-
+        return jsonify({'routes': routes, 'route_details': route_details})
     except Exception as e:
-        app.logger.error(f"Error analyzing route: {e}")
+        logger.error(f"Error analyzing route: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/stream_route', methods=['POST'])
+def stream_route():
+    """
+    Stream voice-first driving updates via Server-Sent Events.
+    Accepts JSON with either:
+      - 'gps_sequence': list of {latitude, longitude}
+      - or 'start' and 'end' to fetch a route and extract step coordinates.
+    """
+    data = request.json or {}
+    gps_sequence = data.get('gps_sequence')
+    if not gps_sequence:
+        start = data.get('start')
+        end = data.get('end')
+        if not start or not end:
+            return jsonify({'error': 'Provide gps_sequence or start and end locations'}), 400
+        routes = get_google_routes(google_maps_api_key, start, end)
+        if not routes:
+            return jsonify({'error': 'No routes found'}), 404
+        gps_sequence = [
+            {'latitude': step['end_location']['lat'], 'longitude': step['end_location']['lng']}
+            for step in routes[0]['legs'][0]['steps']
+        ]
+
+    def event_stream():
+        prev = gps_sequence[0]
+        for coord in gps_sequence:
+            lat = coord['latitude']
+            lng = coord['longitude']
+            update = generate_voice_update(lat, lng, prev['latitude'], prev['longitude'], model_name=VOICE_MODEL)
+            data_packet = {'text': update, 'latitude': lat, 'longitude': lng}
+            yield f"data: {json.dumps(data_packet)}\n\n"
+            prev = coord
+
+    return Response(event_stream(), mimetype='text/event-stream')
+
+@app.route('/voice_input', methods=['POST'])
+def voice_input():
+    """
+    Transcribe uploaded audio via Whisper and return the transcript.
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No audio file part'}), 400
+    file = request.files['file']
+    try:
+        transcript_resp = openai.Audio.transcribe(
+            model=WHISPER_MODEL,
+            file=file
+        )
+        text = transcript_resp.get('text', '')
+        return jsonify({'transcript': text})
+    except Exception as e:
+        logger.error(f"Whisper transcription failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/test_openai', methods=['GET'])
 def test_openai():
-    """
-    Test endpoint for OpenAI API connection
-    """
     try:
         logger.debug("Testing OpenAI API connection")
-        # Simple test completion
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
-            messages=[{"role": "user", "content": "Say 'Hello, testing 1-2-3'"}],
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Say 'Hello, testing'"}],
             max_tokens=20
         )
         return jsonify({
             'status': 'success',
             'message': response.choices[0].message.content,
-            'api_key_set': bool(openai.api_key),
-            'api_key_length': len(openai.api_key) if openai.api_key else 0
+            'api_key_set': bool(openai.api_key)
         })
     except Exception as e:
-        logger.error(f"OpenAI test failed: {str(e)}", exc_info=True)
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'api_key_set': bool(openai.api_key),
-            'api_key_length': len(openai.api_key) if openai.api_key else 0
-        }), 500
+        logger.error(f"OpenAI test failed: {e}")
+        return jsonify({'status':'error','error':str(e)}),500
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    """
-    Chat endpoint - Handles conversation with the AI assistant
-    """
     try:
-        # Get the user's message
         user_message = request.json.get('message')
         if not user_message:
-            return jsonify({'error': 'No message provided'}), 400
-
-        # Initialize conversation history if not exists
+            return jsonify({'error':'No message provided'}),400
         if 'conversation' not in session:
             session['conversation'] = []
-
-        # Read the initial prompt from the file
         try:
-            logger.debug("Reading initial prompt file")
-            with open('topic_prompts/initial_prompt.txt', 'r') as file:
-                initial_prompt = file.read()
-            logger.debug("Successfully read initial prompt")
+            with open('topic_prompts/initial_prompt.txt') as f:
+                initial_prompt = f.read()
         except FileNotFoundError:
-            logger.error("Initial prompt file not found")
-            return jsonify({'error': 'Initial prompt file not found. Please check server configuration.'}), 500
-
-        # Prepare messages for OpenAI API
-        messages = [{
-            "role": "system",
-            "content": initial_prompt
-        }]
-
-        # Add conversation history
-        for msg in session['conversation']:
-            logger.debug(f"Adding message to history: {msg}")
-            messages.append({
-                "role": str(msg["role"]),
-                "content": str(msg["content"])
-            })
-
-        # Add the new user message
-        messages.append({
-            "role": "user",
-            "content": str(user_message)
-        })
-
-        logger.debug(f"Final messages array: {messages}")
-
-        try:
-            # Make API call to OpenAI
-            logger.debug("Calling OpenAI API")
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=500
-            )
-            logger.debug("Successfully received OpenAI API response")
-            
-            # Extract the content from the response
-            gpt_response = response.choices[0].message.content
-            logger.debug(f"Generated response length: {len(gpt_response)}")
-
-            # Append the GPT response to the conversation history
-            session['conversation'].append({
-                "role": "assistant",
-                "content": str(gpt_response)
-            })
-
-            # Keep conversation history limited to last 10 messages
-            if len(session['conversation']) > 10:
-                logger.debug("Trimming conversation history")
-                session['conversation'] = session['conversation'][-10:]
-
-            return jsonify({'response': gpt_response})
-
-        except Exception as e:
-            logger.error(f"OpenAI API Error: {str(e)}")
-            return jsonify({'error': f'OpenAI API Error: {str(e)}'}), 500
-
+            return jsonify({'error':'Initial prompt file not found'}),500
+        messages = [{"role":"system","content":initial_prompt}]
+        messages += session['conversation'][-10:]
+        messages.append({"role":"user","content":user_message})
+        resp = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
+        gpt_content = resp.choices[0].message.content
+        session['conversation'].append({"role":"assistant","content":gpt_content})
+        session.modified = True
+        return jsonify({'response':gpt_content})
     except Exception as e:
-        logger.error(f"General error in chat endpoint: {str(e)}", exc_info=True)
-        return jsonify({'error': f'General error: {str(e)}'}), 500
+        logger.error(f"Chat endpoint error: {e}")
+        return jsonify({'error':str(e)}),500
 
 @app.route('/clear_session', methods=['GET'])
 def clear_session():
-    """
-    Clear session endpoint - Resets the conversation history
-    """
     session.clear()
-    return jsonify({'status': 'session cleared'})
+    return jsonify({'status':'session cleared'})
 
 if __name__ == '__main__':
-    # Run the Flask application
     app.run(host="0.0.0.0", port=8080)

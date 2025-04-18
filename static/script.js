@@ -1,7 +1,6 @@
 /**
  * Smart Drive AI - Main JavaScript File
- * Handles map initialization, route finding, chat, voice-first streaming,
- * and virtual drive simulation with waypoint animation and voice updates.
+ * Handles map initialization, route finding, chat, and virtual drive simulation with waypoint animation and voice updates.
  */
 
 // Global variables for map functionality
@@ -31,7 +30,7 @@ window.initMap = function() {
     directionsService = new google.maps.DirectionsService();
     directionsRenderer = new google.maps.DirectionsRenderer({ map });
 
-    // Add Simulate Drive button
+    // Add Simulate Drive button (starts disabled)
     simulateBtn = document.createElement('button');
     simulateBtn.textContent = 'Simulate Drive';
     simulateBtn.id = 'simulate-drive';
@@ -49,7 +48,6 @@ function displayRoute(route) {
         console.error('Invalid route data');
         return;
     }
-    // Show on map
     const request = {
         origin: route.legs[0].start_address,
         destination: route.legs[0].end_address,
@@ -68,7 +66,8 @@ function displayRoute(route) {
 }
 
 /**
- * Decode & subsample overview polyline, prefetch voice updates
+ * Decode & subsample overview polyline, then prefetch voice updates.
+ * Only enable the Simulate button once those packets arrive.
  */
 function prepareSimulation(overview_polyline) {
     // Decode full path
@@ -79,10 +78,20 @@ function prepareSimulation(overview_polyline) {
     if (waypoints[waypoints.length - 1] !== fullPath[fullPath.length - 1]) {
         waypoints.push(fullPath[fullPath.length - 1]);
     }
-    // Enable Simulate button
-    simulateBtn.disabled = false;
-    // Prefetch voice packets for all waypoints
-    fetchVoicePackets(waypoints).then(pkts => voicePackets = pkts);
+
+    // Disable simulate until packets arrive
+    simulateBtn.disabled = true;
+    console.log(`Pre‑fetching ${waypoints.length} voice packets…`);
+    fetchVoicePackets(waypoints)
+      .then(pkts => {
+        voicePackets = pkts;
+        console.log(`✅ Received ${pkts.length} packets.`);
+        simulateBtn.disabled = false;
+      })
+      .catch(err => {
+        console.error('Voice packet fetch failed:', err);
+        alert('Failed to load simulated instructions.');
+      });
 }
 
 /**
@@ -92,12 +101,15 @@ async function fetchVoicePackets(sequence) {
     const resp = await fetch('/stream_route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gps_sequence: sequence.map(pt => ({ latitude: pt.lat(), longitude: pt.lng() })) })
+        body: JSON.stringify({
+            gps_sequence: sequence.map(pt => ({ latitude: pt.lat(), longitude: pt.lng() }))
+        })
     });
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     const packets = [];
+
     while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -108,7 +120,9 @@ async function fetchVoicePackets(sequence) {
             if (part.startsWith('data: ')) {
                 try {
                     packets.push(JSON.parse(part.slice(6)));
-                } catch {}
+                } catch (e) {
+                    console.warn('Malformed SSE chunk', e);
+                }
             }
         }
     }
@@ -119,60 +133,58 @@ async function fetchVoicePackets(sequence) {
  * Animate the virtual drive along subsampled waypoints
  */
 function simulateDrive() {
-    // Reset any existing simulation
     clearInterval(simulationInterval);
     if (marker) marker.setMap(null);
     if (traveledPath) traveledPath.setMap(null);
     if (upcomingPath) upcomingPath.setMap(null);
     lastSpoken = '';
 
-    // Draw upcoming path
+    // Draw upcoming & traveled paths
     upcomingPath = new google.maps.Polyline({
         path: waypoints,
         strokeColor: '#ccc',
         strokeWeight: 4,
         map
     });
-    // Initialize traveled path
     traveledPath = new google.maps.Polyline({
         path: [],
         strokeColor: '#007bff',
         strokeWeight: 6,
         map
     });
+
     // Place car marker at start
     marker = new google.maps.Marker({
         position: waypoints[0],
         map,
-        icon: { url: 'https://maps.gstatic.com/intl/en_us/mapfiles/markers2/measle_blue.png', scaledSize: new google.maps.Size(12,12) }
+        icon: {
+            url: 'https://maps.gstatic.com/intl/en_us/mapfiles/markers2/measle_blue.png',
+            scaledSize: new google.maps.Size(12,12)
+        }
     });
     map.panTo(waypoints[0]);
 
-    // Step through waypoints every 1.5s
     let idx = 0;
+    const pace = 2000;  // 2s per waypoint
     simulationInterval = setInterval(() => {
         if (idx >= waypoints.length) {
             clearInterval(simulationInterval);
+            handleVoicePacket({ text: 'You have arrived at your destination' });
             return;
         }
         const pos = waypoints[idx];
-        // Update marker
         marker.setPosition(pos);
-        // Extend traveled, shorten upcoming
-        const traveled = traveledPath.getPath();
-        traveled.push(pos);
-        const upcoming = upcomingPath.getPath();
-        upcoming.removeAt(0);
-        // Center map
+        traveledPath.getPath().push(pos);
+        upcomingPath.getPath().removeAt(0);
         map.panTo(pos);
-        // Speak update if available and not repeat
+
         const pkt = voicePackets[idx];
-        if (pkt && pkt.text !== lastSpoken) {
+        if (pkt && pkt.text && pkt.text !== lastSpoken) {
             lastSpoken = pkt.text;
             handleVoicePacket(pkt);
         }
         idx++;
-    }, 1500);
+    }, pace);
 }
 
 /**
@@ -181,12 +193,13 @@ function simulateDrive() {
 function displayRouteDetails(routeDetails) {
     const chatContainer = document.getElementById('chat-container');
     chatContainer.innerHTML = '';
-    routeDetails.forEach((detail, index) => {
-        const msg = `Route ${index + 1}:\n` +
-                    `Safety Score: ${detail.safety_score}/10\n` +
-                    `Duration: ${detail.duration} minutes\n` +
-                    `Distance: ${detail.distance}\n` +
-                    `First steps:\n${detail.steps.join('\n')}`;
+    routeDetails.forEach((detail, i) => {
+        const msg =
+            `Route ${i+1}:\n` +
+            `Safety Score: ${detail.safety_score}/10\n` +
+            `Duration: ${detail.duration} minutes\n` +
+            `Distance: ${detail.distance}\n` +
+            `First steps:\n${detail.steps.join('\n')}`;
         addMessageToChat(msg, 'bot');
     });
 }
@@ -194,7 +207,7 @@ function displayRouteDetails(routeDetails) {
 function findSafeRoute() {
     const start = document.getElementById('start-location').value;
     const end = document.getElementById('end-location').value;
-    if (!start || !end) { alert('Please enter both locations'); return; }
+    if (!start || !end) return alert('Please enter both locations');
     document.getElementById('map-container').style.opacity = '0.5';
     fetch('/analyze_route', {
         method: 'POST',
@@ -206,8 +219,13 @@ function findSafeRoute() {
         if (data.routes?.length) displayRoute(data.routes[0]);
         if (data.route_details) displayRouteDetails(data.route_details);
     })
-    .catch(err => { console.error(err); alert(err.error||err); })
-    .finally(() => document.getElementById('map-container').style.opacity = '1');
+    .catch(err => {
+        console.error(err);
+        alert(err.error || err);
+    })
+    .finally(() => {
+        document.getElementById('map-container').style.opacity = '1';
+    });
 }
 
 function sendMessage() {
@@ -216,7 +234,8 @@ function sendMessage() {
     if (!msg) return;
     input.disabled = true;
     const btn = document.querySelector('#input-container button');
-    btn.disabled = true; btn.textContent = 'Sending...';
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
     addMessageToChat(msg, 'user');
     input.value = '';
     fetch('/chat', {
@@ -225,68 +244,42 @@ function sendMessage() {
         body: JSON.stringify({ message: msg })
     })
     .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
-    .then(d => addMessageToChat(d.error ? 'Error: '+d.error : d.response, 'bot'))
-    .catch(e => addMessageToChat('Error: '+(e.error||e), 'bot'))
-    .finally(() => { input.disabled = false; btn.disabled = false; btn.textContent = 'Send'; input.focus(); });
+    .then(d => addMessageToChat(d.error ? 'Error: ' + d.error : d.response, 'bot'))
+    .catch(e => addMessageToChat('Error: ' + (e.error || e), 'bot'))
+    .finally(() => {
+        input.disabled = false;
+        btn.disabled = false;
+        btn.textContent = 'Send';
+        input.focus();
+    });
 }
 
 function addMessageToChat(message, sender) {
-    const container = document.getElementById("chat-container");
-    const el = document.createElement("div");
-    el.classList.add("message", sender + "-message");
+    const container = document.getElementById('chat-container');
+    const el = document.createElement('div');
+    el.classList.add('message', sender + '-message');
     el.innerHTML = message.replace(/\n/g, '<br>');
     container.appendChild(el);
     el.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-async function startVoiceRoute() {
-    const start = document.getElementById('start-location').value;
-    const end = document.getElementById('end-location').value;
-    if (!start || !end) { alert('Please enter both locations'); return; }
-    document.getElementById('map-container').style.opacity = '0.5';
-    try {
-        const res = await fetch('/stream_route', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ start, end })
-        });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error||'Stream failed'); }
-        const reader = res.body.getReader();
-        const dec = new TextDecoder();
-        let buf = '';
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const parts = buf.split('\n\n');
-            buf = parts.pop();
-            for (const p of parts) {
-                if (p.startsWith('data: ')) {
-                    try { handleVoicePacket(JSON.parse(p.slice(6))); }
-                    catch {}
-                }
-            }
-        }
-    } catch (e) {
-        console.error('Voice stream error', e);
-        alert('Voice stream error: '+e.message);
-    } finally {
-        document.getElementById('map-container').style.opacity = '1';
-    }
-}
-
 function handleVoicePacket(packet) {
-    const txt = packet.text;
-    addMessageToChat(txt, 'bot');
-    speechSynthesis.speak(new SpeechSynthesisUtterance(txt));
+    addMessageToChat(packet.text, 'bot');
+    speechSynthesis.speak(new SpeechSynthesisUtterance(packet.text));
 }
 
+// Bind controls on DOM load
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('start-button')?.addEventListener('click', findSafeRoute);
-    document.getElementById('voice-button')?.addEventListener('click', startVoiceRoute);
     document.getElementById('user-input').addEventListener('keypress', e => {
-        if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
     });
     document.querySelector('#input-container button').addEventListener('click', sendMessage);
-    addMessageToChat("Hello! I'm your Smart Drive AI assistant. I can help you find safe routes and provide voice updates. How can I help you today?", 'bot');
+    addMessageToChat(
+      "Hello! I'm your Smart Drive AI assistant. Use “Find Safe Route,” then wait for “Simulate Drive” to enable.",
+      'bot'
+    );
 });

@@ -76,7 +76,7 @@ async function ensureHotspotLayer () {
     }));
     hotspotLayer = new google.maps.visualization.HeatmapLayer({
       data: pts,
-      radius: 15,
+      radius: 9,
       opacity: 0.45
     });
     hotspotsReady = true;

@@ -18,8 +18,10 @@
             s.src =
               `https://maps.googleapis.com/maps/api/js` +
               `?key={{ google_maps_api_key }}` +
-              `&callback=initMap&libraries=places,directions,geometry`;
-            s.async = true; s.defer = true;
+              `&callback=initMap&libraries=places,directions,geometry,visualization`;
+            /* ↑ added “visualization” so the HeatmapLayer class is available */
+            s.async = true;
+            s.defer = true;
             s.onerror = () => console.error('Failed to load Google Maps API');
             document.head.appendChild(s);
         }
@@ -40,6 +42,12 @@
 
             <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
             <!-- Simulate‑Drive button is injected by script.js -->
+
+            <!-- 🔥 Crash‑heat‑map toggle -->
+            <label id="heatmap-label" style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+                <input type="checkbox" id="heat-toggle">
+                <span>Show crash heat‑map</span>
+            </label>
         </div>
 
         <!-- ── Map ── -->

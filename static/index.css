@@ -46,6 +46,15 @@ h1 {
     font-size: 16px;
 }
 
+/* ★ Heat‑map toggle (checkbox + label) */
+#heatmap-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    user-select: none;
+}
+
 /* ─────────────────── Map container ─────────────────── */
 #map-container {
     height: 400px;

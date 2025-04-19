@@ -30,6 +30,28 @@ def identify_crash_hotspots(data: pd.DataFrame, grid_size: float = 0.01) -> pd.D
     return data.groupby(['lat_bin', 'lng_bin'])['crash_sev_id'].mean().reset_index()
 
 
+def export_hotspot_json(hotspot_df: pd.DataFrame,
+                        out_path: str = "static/hotspots.json") -> None:
+    """
+    Convert the hotspot grid → lightweight JSON:
+      [{ "lat": 30.26, "lng": -97.74, "weight": 3.4 }, …]
+    """
+    records = []
+    for _, row in hotspot_df.iterrows():
+        # centre each grid‑cell so points plot nicely
+        lat_c = float(row['lat_bin']) + 0.005
+        lng_c = float(row['lng_bin']) + 0.005
+        records.append({"lat": lat_c, "lng": lng_c, "weight": float(row['crash_sev_id'])})
+
+    try:
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(records, f)
+        print(f"Hotspot JSON exported → {out_path}  ({len(records)} points)")
+    except Exception as exc:
+        print("Failed to write hotspot JSON:", exc)
+
+
 def train_model(hotspot_data: pd.DataFrame):
     X = hotspot_data[['lat_bin', 'lng_bin']]
     y = hotspot_data['crash_sev_id']
@@ -97,6 +119,18 @@ def load_hotspot_polygons(geojson_path="output_files/high_crash_zones.geojson"):
 
 
 _HOTSPOT_POLYGONS = load_hotspot_polygons()
+
+# ─── export centroid + weight for front‑end heat‑map ───
+def _dump_hotspot_json(polys, out_path="static/hotspots.json"):
+    centroids = []
+    for poly in polys:
+        c = poly.centroid
+        centroids.append({"lat": c.y, "lng": c.x, "weight": 1})
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(centroids, f)
+_dump_hotspot_json(_HOTSPOT_POLYGONS)
+
 
 
 def is_in_hotspot(lat: float, lng: float, buffer_m: int = 50) -> bool:
@@ -194,7 +228,11 @@ def main():
         raise ValueError("GOOGLE_MAPS_API_KEY is missing or placeholder.")
 
     data = load_crash_data("data.csv")
-    model = train_model(identify_crash_hotspots(data))
+    hotspot_df = identify_crash_hotspots(data)
+    model = train_model(hotspot_df)
+
+    # export hotspots for front‑end heat‑map
+    export_hotspot_json(hotspot_df)
 
     routes = get_google_routes(api_key, "Austin, TX", "Houston, TX")
     scores = [calculate_safety_score(r, model) for r in routes]

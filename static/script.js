@@ -1,5 +1,5 @@
 /**
- * Handles map initialization, route finding, chat, and turn‑by‑turn simulation
+ * Handles map initialization, route finding, chat, heat‑map, and turn‑by‑turn simulation
  */
 
 /* ──────────────── Global state ──────────────── */
@@ -15,13 +15,17 @@ let lastSpoken       = '';
 /* Route context */
 let currentStart      = '';
 let currentEnd        = '';
-let currentRouteIndex = 0;   // 0 = first route; updated to safest index
-let currentRouteObj   = null;/* remembers the chosen route JSON */
-let drawnPolyline     = null;/* main route polyline on the map */
-let currentRoutes     = [];  /* all routes returned from the server */
+let currentRouteIndex = 0;
+let currentRouteObj   = null;
+let drawnPolyline     = null;
+let currentRoutes     = [];
+
+/* Heat‑map */
+let hotspotLayer  = null;   // google.maps.visualization.HeatmapLayer
+let hotspotsReady = false;
 
 /* Simulation timing */
-const SIM_TICK_MS = 6000;    // pause 6 s at each checkpoint
+const SIM_TICK_MS = 6000;   // pause 6 s at each checkpoint
 
 /* helper to grab/insert the picker container */
 const routePickerRoot = () =>
@@ -39,6 +43,7 @@ window.initMap = function () {
     center: { lat: 30.2672, lng: -97.7431 },
     zoom: 12
   });
+
   directionsService  = new google.maps.DirectionsService();
   directionsRenderer = new google.maps.DirectionsRenderer({
     map,
@@ -46,6 +51,7 @@ window.initMap = function () {
     preserveViewport: true
   });
 
+  /* Simulate‑Drive button */
   simulateBtn             = document.createElement('button');
   simulateBtn.textContent = 'Simulate Drive';
   simulateBtn.id          = 'simulate-drive';
@@ -54,6 +60,27 @@ window.initMap = function () {
   document.getElementById('input-fields').appendChild(simulateBtn);
   simulateBtn.addEventListener('click', simulateDrive);
 };
+
+/* ──────────────── Heat‑map helpers ──────────────── */
+async function ensureHotspotLayer () {
+  if (hotspotsReady) return;
+  try {
+    const resp = await fetch('/static/hotspots.json');
+    const data = await resp.json();           // [{lat,lng,weight}]
+    const pts  = data.map(d => ({
+      location: new google.maps.LatLng(d.lat, d.lng),
+      weight  : d.weight
+    }));
+    hotspotLayer = new google.maps.visualization.HeatmapLayer({
+      data: pts,
+      radius: 25,
+      opacity: 0.6
+    });
+    hotspotsReady = true;
+  } catch (e) {
+    console.error('Failed to load hotspot heat‑map:', e);
+  }
+}
 
 /* ──────────────── Route display & prep ──────────────── */
 function displayRoute(route) {
@@ -131,7 +158,7 @@ async function fetchEnhancedPackets() {
   return packets;
 }
 
-/* ──────────────── Simulation (6 s per step) ──────────────── */
+/* ──────────────── Simulation ──────────────── */
 function simulateDrive() {
   clearInterval(simulationInterval);
   [marker, traveledPath, upcomingPath].forEach(obj => obj?.setMap?.(null));
@@ -150,10 +177,10 @@ function simulateDrive() {
   });
   map.panTo(waypoints[0]);
 
-  let idx = 0;  // waypoint pointer
+  let idx = 0;
 
   simulationInterval = setInterval(() => {
-    /* 1️⃣ Announce the NEXT checkpoint (one step ahead) */
+    /* Announce NEXT checkpoint */
     const nextIdx = idx + 1;
     if (nextIdx < voicePackets.length) {
       const pkt = voicePackets[nextIdx];
@@ -163,7 +190,7 @@ function simulateDrive() {
       }
     }
 
-    /* 2️⃣ Move icon to the CURRENT checkpoint */
+    /* Move icon to CURRENT checkpoint */
     if (idx >= waypoints.length) {
       clearInterval(simulationInterval);
       handleVoicePacket({
@@ -295,6 +322,19 @@ function handleVoicePacket(pkt) {
 
 /* ──────────────── DOM wiring ──────────────── */
 document.addEventListener('DOMContentLoaded', () => {
+  /* Heat‑map toggle */
+  const toggle = document.getElementById('toggle-hotspots');
+  if (toggle) {
+    toggle.addEventListener('change', async e => {
+      if (e.target.checked) {
+        await ensureHotspotLayer();
+        hotspotLayer?.setMap(map);
+      } else {
+        hotspotLayer?.setMap(null);
+      }
+    });
+  }
+
   document.getElementById('start-button').addEventListener('click', findSafeRoute);
   document.getElementById('user-input').addEventListener('keypress', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -303,7 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   addMessageToChat(
     "Hello! I’m your Smart Drive AI assistant.\n" +
-    "Enter a start & destination, click **Find Safe Route** to compare options, then choose one and click “Simulate Drive”.",
+    "Enter a start & destination, click **Find Safe Route** to compare options, toggle the hotspot heat‑map if desired, then choose a route and click “Simulate Drive”.",
     'bot'
   );
 });

@@ -4,70 +4,63 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Drive AI</title>
-    
-    <!-- Link to custom CSS -->
+
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
-    
-    <!-- Initialize initMap function before loading Google Maps API -->
+
+    <!-- Google Maps loader -->
     <script>
-        // Define initMap in the global scope before loading the API
-        window.initMap = function() {
-            // This will be overridden by the actual implementation in script.js
-            console.log('Map initialization started');
-        };
+        /* Stub — real init comes from static/script.js */
+        window.initMap = () => console.log('Map init placeholder');
 
-        // Function to load Google Maps API (including geometry library)
-        function loadGoogleMapsAPI() {
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions,geometry`;
-            script.async = true;
-            script.defer = true;
-            script.onerror = function() {
-                console.error('Failed to load Google Maps API');
-            };
-            document.head.appendChild(script);
+        function loadGoogleMapsAPI () {
+            const s = document.createElement('script');
+            s.src =
+              `https://maps.googleapis.com/maps/api/js` +
+              `?key={{ google_maps_api_key }}` +
+              `&callback=initMap&libraries=places,directions,geometry`;
+            s.async = true; s.defer = true;
+            s.onerror = () => console.error('Failed to load Google Maps API');
+            document.head.appendChild(s);
         }
-
-        // Load the API when the DOM is ready
         document.addEventListener('DOMContentLoaded', loadGoogleMapsAPI);
     </script>
 </head>
 <body>
-    <!-- Main container for all content -->
     <div id="container">
-        <!-- Page header -->
-        <h1>AI Smart Drive</h1>
+        <h1>AI Smart Drive</h1>
 
-        <!-- User input section for route planning -->
+        <!-- ── Input fields ── -->
         <div id="input-fields">
-            <label for="start-location">Current Location:</label>
-            <input type="text" id="start-location" placeholder="Enter your current location">
-            
+            <label for="start-location">Current Location:</label>
+            <input id="start-location" placeholder="Enter your current location">
+
             <label for="end-location">Destination:</label>
-            <input type="text" id="end-location" placeholder="Enter your destination">
-            
-            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
-            <!-- Simulate Drive button is injected by script.js -->
+            <input id="end-location" placeholder="Enter your destination">
+
+            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
+            <!-- Simulate‑Drive button is injected by script.js -->
         </div>
 
-        <!-- Map container with loading indicator -->
+        <!-- ── Map ── -->
         <div id="map-container">
             <div id="map">
-                <div id="map-loading" style="display: none;">
-                    Loading map...
-                </div>
+                <div id="map-loading" style="display:none;">Loading map…</div>
             </div>
         </div>
 
-        <!-- Chat interface for AI assistant -->
+        <!-- 🔹 Route‑picker placeholder (populated by script.js) -->
+        <div id="route-picker"></div>
+
+        <!-- ── Chat ── -->
         <div id="chat-container"></div>
         <div id="input-container">
-            <input type="text" id="user-input" placeholder="Ask about a route...">
+            <input id="user-input" placeholder="Ask about a route…">
             <button onclick="sendMessage()">Send</button>
         </div>
     </div>
 
-    <!-- Load main JavaScript file -->
+    <!-- Main JS -->
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

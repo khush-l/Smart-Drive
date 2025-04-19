@@ -20,6 +20,9 @@ let currentRouteObj   = null;/* remembers the chosen route JSON */
 let drawnPolyline     = null;/* main route polyline on the map */
 let currentRoutes     = [];  /* all routes returned from the server */
 
+/* Simulation timing */
+const SIM_TICK_MS = 6000;    // pause 6 s at each checkpoint
+
 /* helper to grab/insert the picker container */
 const routePickerRoot = () =>
   document.getElementById('route-picker') ??
@@ -39,11 +42,10 @@ window.initMap = function () {
   directionsService  = new google.maps.DirectionsService();
   directionsRenderer = new google.maps.DirectionsRenderer({
     map,
-    suppressMarkers: true,   // we drop our own car marker
-    preserveViewport: true   // don’t auto‑zoom; we’ll fit bounds ourselves
+    suppressMarkers: true,
+    preserveViewport: true
   });
 
-  /* Simulate‑Drive button (injected so HTML stays clean) */
   simulateBtn             = document.createElement('button');
   simulateBtn.textContent = 'Simulate Drive';
   simulateBtn.id          = 'simulate-drive';
@@ -57,10 +59,8 @@ window.initMap = function () {
 function displayRoute(route) {
   if (!route?.legs?.length) { console.error('Invalid route data'); return; }
 
-  /* ① Clear any previously drawn polyline */
   drawnPolyline?.setMap(null);
 
-  /* ② Draw the Google overview_polyline so the map always matches the server’s route */
   const fullPath =
     google.maps.geometry.encoding.decodePath(route.overview_polyline.points);
   drawnPolyline = new google.maps.Polyline({
@@ -70,12 +70,10 @@ function displayRoute(route) {
     map
   });
 
-  /* ③ Fit viewport neatly around that path */
   const bounds = new google.maps.LatLngBounds();
   fullPath.forEach(p => bounds.extend(p));
   map.fitBounds(bounds);
 
-  /* ④ Store & continue with simulation prep */
   currentRouteObj = route;
   prepareSimulationFromSteps(route);
 }
@@ -83,19 +81,16 @@ function displayRoute(route) {
 function prepareSimulationFromSteps(route) {
   const steps = route.legs[0].steps;
 
-  /* Build waypoint list */
   waypoints = steps.map(s =>
     new google.maps.LatLng(s.end_location.lat, s.end_location.lng)
   );
 
-  /* Google fallback packets (raw html stripped) */
   voicePackets = steps.map(s => ({
-    text: s.html_instructions.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim(),
-    latitude:  s.end_location.lat,
-    longitude: s.end_location.lng
+    text      : s.html_instructions.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim(),
+    latitude  : s.end_location.lat,
+    longitude : s.end_location.lng
   }));
 
-  /* Async: fetch enriched packets (LLM + hotspot) */
   fetchEnhancedPackets()
     .then(pkts => { if (pkts.length) voicePackets = pkts; })
     .catch(err  => console.warn('Enhanced stream failed; using fallback', err));
@@ -136,25 +131,15 @@ async function fetchEnhancedPackets() {
   return packets;
 }
 
-/* ──────────────── Simulation (3 s per step) ──────────────── */
+/* ──────────────── Simulation (6 s per step) ──────────────── */
 function simulateDrive() {
   clearInterval(simulationInterval);
   [marker, traveledPath, upcomingPath].forEach(obj => obj?.setMap?.(null));
   lastSpoken = '';
 
-  /* ① Create invisible polylines (map omitted) so we can still manage getPath() */
-  upcomingPath = new google.maps.Polyline({
-    path: waypoints,
-    strokeColor: '#ccc',
-    strokeWeight: 4
-  });
-  traveledPath = new google.maps.Polyline({
-    path: [],
-    strokeColor: '#007bff',
-    strokeWeight: 6
-  });
+  upcomingPath = new google.maps.Polyline({ path: waypoints });
+  traveledPath = new google.maps.Polyline({ path: [] });
 
-  /* ② Car marker */
   marker = new google.maps.Marker({
     position: waypoints[0],
     map,
@@ -165,9 +150,20 @@ function simulateDrive() {
   });
   map.panTo(waypoints[0]);
 
-  /* ③ Animate through waypoints */
-  let idx = 0;
+  let idx = 0;  // waypoint pointer
+
   simulationInterval = setInterval(() => {
+    /* 1️⃣ Announce the NEXT checkpoint (one step ahead) */
+    const nextIdx = idx + 1;
+    if (nextIdx < voicePackets.length) {
+      const pkt = voicePackets[nextIdx];
+      if (pkt.text !== lastSpoken) {
+        lastSpoken = pkt.text;
+        handleVoicePacket(pkt);
+      }
+    }
+
+    /* 2️⃣ Move icon to the CURRENT checkpoint */
     if (idx >= waypoints.length) {
       clearInterval(simulationInterval);
       handleVoicePacket({
@@ -180,20 +176,14 @@ function simulateDrive() {
 
     const pos = waypoints[idx];
     marker.setPosition(pos);
-    traveledPath.getPath().push(pos);       // ← invisible polyline keeps internal path list
+    traveledPath.getPath().push(pos);
     upcomingPath.getPath().removeAt(0);
     map.panTo(pos);
-
-    const pkt = voicePackets[idx];
-    if (pkt && pkt.text !== lastSpoken) {
-      lastSpoken = pkt.text;
-      handleVoicePacket(pkt);
-    }
     idx++;
-  }, 3000);
+  }, SIM_TICK_MS);
 }
 
-/* ──────────────── Route‑picker UI (radio cards) ──────────────── */
+/* ──────────────── Route‑picker UI ──────────────── */
 function renderRoutePicker(details) {
   const root = routePickerRoot();
   root.innerHTML = '';
@@ -234,8 +224,6 @@ function findSafeRoute() {
   .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
   .then(data => {
     currentRoutes = data.routes;
-
-    /* Determine safest route */
     currentRouteIndex = data.route_details.reduce(
       (best, cur, i, arr) => cur.safety_score > arr[best].safety_score ? i : best,
       0

@@ -61,6 +61,7 @@ tests/
 topic_prompts/
   initial_prompt.txt
   voice_route_demo_prompt.txt
+--output
 .gitignore
 app.py
 README.md
@@ -72,6 +73,19 @@ testing.ipynb
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="--output">
+📦 Repomix v0.3.1
+
+No custom config found at repomix.config.json or global config at /home/codespace/.config/repomix/repomix.config.json.
+You can add a config file for additional settings. Please check https://github.com/yamadashy/repomix for more information.
+✖ Error during packing
+
+
+Need help?
+• File an issue on GitHub: https://github.com/yamadashy/repomix/issues
+• Join our Discord community: https://discord.gg/wNYzTwZFku
+</file>
 
 <file path="tests/__init__.py">
 # This file makes the tests directory a Python package
@@ -652,58 +666,72 @@ jobs:
 </file>
 
 <file path="static/index.css">
-/* 
- * Smart Drive AI - Main Stylesheet
- * Defines the visual styling and layout of the application
- */
-⋮----
-/* General page layout and background */
+/* ─────────────────── General page layout and background ─────────────────── */
 body {
 ⋮----
-/* Main container styling - white card with shadow */
+/* ─────────────────── Main container styling ─────────────────── */
 #container {
 ⋮----
-/* Page header styling */
 h1 {
 ⋮----
-/* Input fields section styling */
+/* ─────────────────── Input fields ─────────────────── */
 #input-fields {
 ⋮----
-#input-fields label {
+#input-fields label { font-weight: bold; color: #555; }
 ⋮----
 #input-fields input {
 ⋮----
-/* Map container styling */
+/* ─────────────────── Map container ─────────────────── */
 #map-container {
 ⋮----
-#map {
+#map { height: 100%; width: 100%; }
 ⋮----
-/* Chat container styling */
+/* ─────────────────── Chat container ─────────────────── */
 #chat-container {
 ⋮----
-/* Chat message styling */
 .message {
 ⋮----
-/* User message styling */
-.user-message {
+.user-message  { background-color:#007bff; color:#fff; float:right; border-bottom-right-radius:4px; margin-left:20%; }
+.bot-message   { background-color:#e9ecef; color:#333; float:left;  border-bottom-left-radius:4px; margin-right:20%; }
 ⋮----
-/* Bot message styling */
-.bot-message {
-⋮----
-/* Input container styling */
-#input-container {
+/* ─────────────────── Input & buttons ─────────────────── */
+#input-container { display:flex; gap:10px; }
 ⋮----
 #user-input {
 ⋮----
-/* Button styling */
 button {
+button:hover { background-color:#0056b3; }
 ⋮----
-button:hover {
+.loading { opacity:0.5; pointer-events:none; }
 ⋮----
-/* Loading state styling */
-.loading {
+/* ─────────────────── Responsive ─────────────────── */
 ⋮----
-/* Responsive design for mobile devices */
+#container { width:95%; margin:10px; padding:15px; }
+#map-container { height:300px; }
+.message { max-width:90%; }
+⋮----
+/* ════════════════════════════════════════════════════════════════════════ */
+/*                      ★  Route‑picker styling ★                      */
+⋮----
+/* Container that holds all route cards (injected after results arrive) */
+#route-picker{
+⋮----
+/* Each selectable card */
+.route-card{
+⋮----
+/* Hide the browser’s default radio dot */
+.route-card input[type="radio"]{
+⋮----
+/* Hover state */
+.route-card:hover{ border-color:#007bff; box-shadow:0 2px 6px rgba(0,123,255,0.25); }
+⋮----
+/* Selected (checked) state */
+.route-card input[type="radio"]:checked + .route-info,
+⋮----
+/* Inner div where JS will inject mini‑stats */
+.route-info{
+⋮----
+pointer-events:none; /* allow click to propagate to hidden radio */
 </file>
 
 <file path="Route_Safety.py">
@@ -840,297 +868,6 @@ safety_scores_and_times = [calculate_safety_score(route, model) for route in rou
 safest_route_idx = np.argmax([score for score, _ in safety_scores_and_times])
 </file>
 
-<file path="static/script.js">
-/**
- * Smart Drive AI - Main JavaScript File
- * Handles map initialization, route finding, chat, and enriched turn‑by‑turn simulation
- */
-⋮----
-// Global variables for map functionality
-⋮----
-// Simulation globals
-⋮----
-let waypoints = [];          // google.maps.LatLng for each step end
-let voicePackets = [];       // { text, latitude, longitude }
-⋮----
-/**
- * Initialize the Google Map
- */
-⋮----
-map = new google.maps.Map(document.getElementById('map'), {
-⋮----
-directionsService = new google.maps.DirectionsService();
-directionsRenderer = new google.maps.DirectionsRenderer({ map });
-⋮----
-// Create Simulate Drive button
-simulateBtn = document.createElement('button');
-⋮----
-document.getElementById('input-fields').appendChild(simulateBtn);
-simulateBtn.addEventListener('click', simulateDrive);
-⋮----
-/**
- * Display a route on the map and prepare for simulation
- */
-function displayRoute(route) {
-⋮----
-console.error('Invalid route data');
-⋮----
-directionsService.route(request, (result, status) => {
-⋮----
-directionsRenderer.setDirections(result);
-prepareSimulationFromSteps(route);
-⋮----
-console.error('Directions request failed:', status);
-⋮----
-/**
- * Prepare step waypoints & prefetch enhanced voice packets
- */
-function prepareSimulationFromSteps(route) {
-// Build google waypoints at each step's end_location
-⋮----
-waypoints = steps.map(step =>
-new google.maps.LatLng(
-⋮----
-// Fallback: Google’s raw turn instructions (stripped HTML)
-const googleFallback = steps.map(step => ({
-⋮----
-.replace(/<[^>]+>/g, '')
-.replace(/&nbsp;/g, ' ')
-.trim(),
-⋮----
-// Then asynchronously fetch the enriched SSE stream:
-fetchEnhancedPackets()
-.then(pkts => {
-⋮----
-.catch(err => {
-console.warn('Enhanced stream failed, using Google fallback:', err);
-⋮----
-// Enable simulate
-⋮----
-/**
- * Fetch SSE from /stream_route for enriched instructions + hotspot warnings
- */
-async function fetchEnhancedPackets() {
-const resp = await fetch('/stream_route', {
-⋮----
-body: JSON.stringify({ start: currentStart, end: currentEnd })
-⋮----
-if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-const reader = resp.body.getReader();
-const decoder = new TextDecoder();
-⋮----
-const { value, done } = await reader.read();
-⋮----
-buffer += decoder.decode(value, { stream: true });
-const parts = buffer.split('\n\n');
-buffer = parts.pop();
-⋮----
-if (part.startsWith('data: ')) {
-⋮----
-packets.push(JSON.parse(part.slice(6)));
-⋮----
-/**
- * Animate the drive along step waypoints, 3s per step
- */
-function simulateDrive() {
-clearInterval(simulationInterval);
-if (marker) marker.setMap(null);
-if (traveledPath) traveledPath.setMap(null);
-if (upcomingPath) upcomingPath.setMap(null);
-⋮----
-upcomingPath = new google.maps.Polyline({
-⋮----
-traveledPath = new google.maps.Polyline({
-⋮----
-marker = new google.maps.Marker({
-⋮----
-scaledSize: new google.maps.Size(12, 12)
-⋮----
-map.panTo(waypoints[0]);
-⋮----
-simulationInterval = setInterval(() => {
-⋮----
-handleVoicePacket({
-⋮----
-latitude: waypoints[waypoints.length - 1].lat(),
-longitude: waypoints[waypoints.length - 1].lng()
-⋮----
-marker.setPosition(pos);
-traveledPath.getPath().push(pos);
-upcomingPath.getPath().removeAt(0);
-map.panTo(pos);
-⋮----
-handleVoicePacket(pkt);
-⋮----
-}, 3000);  // 3 seconds per step
-⋮----
-/**
- * Fetch & render safe route + details
- */
-function findSafeRoute() {
-const start = document.getElementById('start-location').value;
-const end   = document.getElementById('end-location').value;
-⋮----
-alert('Please enter both locations');
-⋮----
-document.getElementById('map-container').style.opacity = 0.5;
-fetch('/analyze_route', {
-⋮----
-body: JSON.stringify({ start, end })
-⋮----
-.then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
-.then(data => {
-if (data.routes?.length)      displayRoute(data.routes[0]);
-if (data.route_details)       displayRouteDetails(data.route_details);
-⋮----
-console.error(err);
-alert(err.error || err);
-⋮----
-.finally(() => {
-document.getElementById('map-container').style.opacity = 1;
-⋮----
-/**
- * Display route details in chat
- */
-function displayRouteDetails(details) {
-const chat = document.getElementById('chat-container');
-⋮----
-details.forEach((d,i) => {
-⋮----
-`Safety: ${d.safety_score}/10 • Time: ${d.duration.toFixed(0)} min • Dist: ${d.distance}\n` +
-`First steps:\n${d.steps.join('\n')}`;
-addMessageToChat(msg, 'bot');
-⋮----
-/**
- * AI chat
- */
-function sendMessage() {
-const input = document.getElementById('user-input');
-const text  = input.value.trim();
-⋮----
-const btn = document.querySelector('#input-container button');
-⋮----
-addMessageToChat(text, 'user');
-⋮----
-fetch('/chat', {
-⋮----
-body: JSON.stringify({ message: text })
-⋮----
-.then(r => r.ok ? r.json() : r.json().then(e=>{throw e;}))
-.then(d => addMessageToChat(d.response || `Error: ${d.error}`, 'bot'))
-.catch(e => addMessageToChat(`Error: ${e.error||e}`, 'bot'))
-⋮----
-input.focus();
-⋮----
-/**
- * Append chat bubbles
- */
-function addMessageToChat(msg, sender) {
-const c = document.getElementById('chat-container');
-const el= document.createElement('div');
-el.classList.add('message', `${sender}-message`);
-el.innerHTML = msg.replace(/\n/g,'<br>');
-c.appendChild(el);
-el.scrollIntoView({ behavior:'smooth', block:'end' });
-⋮----
-/**
- * Handle & speak a packet
- */
-function handleVoicePacket(pkt) {
-addMessageToChat(pkt.text, 'bot');
-speechSynthesis.speak(new SpeechSynthesisUtterance(pkt.text));
-⋮----
-/**
- * Wire up UI
- */
-document.addEventListener('DOMContentLoaded', () => {
-document.getElementById('start-button').addEventListener('click', findSafeRoute);
-document.getElementById('user-input').addEventListener('keypress', e => {
-⋮----
-e.preventDefault();
-sendMessage();
-⋮----
-document.querySelector('#input-container button').addEventListener('click', sendMessage);
-⋮----
-addMessageToChat(
-</file>
-
-<file path="templates/index.html">
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Drive AI</title>
-    
-    <!-- Link to custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
-    
-    <!-- Initialize initMap function before loading Google Maps API -->
-    <script>
-        // Define initMap in the global scope before loading the API
-        window.initMap = function() {
-            // This will be overridden by the actual implementation in script.js
-            console.log('Map initialization started');
-        };
-
-        // Function to load Google Maps API (including geometry library)
-        function loadGoogleMapsAPI() {
-            const script = document.createElement('script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions,geometry`;
-            script.async = true;
-            script.defer = true;
-            script.onerror = function() {
-                console.error('Failed to load Google Maps API');
-            };
-            document.head.appendChild(script);
-        }
-
-        // Load the API when the DOM is ready
-        document.addEventListener('DOMContentLoaded', loadGoogleMapsAPI);
-    </script>
-</head>
-<body>
-    <!-- Main container for all content -->
-    <div id="container">
-        <!-- Page header -->
-        <h1>AI Smart Drive</h1>
-
-        <!-- User input section for route planning -->
-        <div id="input-fields">
-            <label for="start-location">Current Location:</label>
-            <input type="text" id="start-location" placeholder="Enter your current location">
-            
-            <label for="end-location">Destination:</label>
-            <input type="text" id="end-location" placeholder="Enter your destination">
-            
-            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
-            <!-- Simulate Drive button is injected by script.js -->
-        </div>
-
-        <!-- Map container with loading indicator -->
-        <div id="map-container">
-            <div id="map">
-                <div id="map-loading" style="display: none;">
-                    Loading map...
-                </div>
-            </div>
-        </div>
-
-        <!-- Chat interface for AI assistant -->
-        <div id="chat-container"></div>
-        <div id="input-container">
-            <input type="text" id="user-input" placeholder="Ask about a route...">
-            <button onclick="sendMessage()">Send</button>
-        </div>
-    </div>
-
-    <!-- Load main JavaScript file -->
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
-</body>
-</html>
-</file>
-
 <file path="README.md">
 # Smart Drive
 
@@ -1240,107 +977,401 @@ Smart-Drive/
 >>>>>>> 05e0e97f09a5de4a5431905e2e75b4864b7399e4
 </file>
 
+<file path="templates/index.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Drive AI</title>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+
+    <!-- Google Maps loader -->
+    <script>
+        /* Stub — real init comes from static/script.js */
+        window.initMap = () => console.log('Map init placeholder');
+
+        function loadGoogleMapsAPI () {
+            const s = document.createElement('script');
+            s.src =
+              `https://maps.googleapis.com/maps/api/js` +
+              `?key={{ google_maps_api_key }}` +
+              `&callback=initMap&libraries=places,directions,geometry`;
+            s.async = true; s.defer = true;
+            s.onerror = () => console.error('Failed to load Google Maps API');
+            document.head.appendChild(s);
+        }
+        document.addEventListener('DOMContentLoaded', loadGoogleMapsAPI);
+    </script>
+</head>
+<body>
+    <div id="container">
+        <h1>AI Smart Drive</h1>
+
+        <!-- ── Input fields ── -->
+        <div id="input-fields">
+            <label for="start-location">Current Location:</label>
+            <input id="start-location" placeholder="Enter your current location">
+
+            <label for="end-location">Destination:</label>
+            <input id="end-location" placeholder="Enter your destination">
+
+            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
+            <!-- Simulate‑Drive button is injected by script.js -->
+        </div>
+
+        <!-- ── Map ── -->
+        <div id="map-container">
+            <div id="map">
+                <div id="map-loading" style="display:none;">Loading map…</div>
+            </div>
+        </div>
+
+        <!-- 🔹 Route‑picker placeholder (populated by script.js) -->
+        <div id="route-picker"></div>
+
+        <!-- ── Chat ── -->
+        <div id="chat-container"></div>
+        <div id="input-container">
+            <input id="user-input" placeholder="Ask about a route…">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <!-- Main JS -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+</file>
+
+<file path="static/script.js">
+/**
+ * Handles map initialization, route finding, chat, and turn‑by‑turn simulation
+ */
+⋮----
+/* ──────────────── Global state ──────────────── */
+⋮----
+/* Simulation globals */
+⋮----
+let waypoints        = [];   // google.maps.LatLng for each step end
+let voicePackets     = [];   // { text, latitude, longitude }
+⋮----
+/* Route context */
+⋮----
+let currentRouteIndex = 0;   // 0 = first route; updated to safest index
+let currentRouteObj   = null;/* remembers the chosen route JSON */
+let drawnPolyline     = null;/* main route polyline on the map */
+let currentRoutes     = [];  /* all routes returned from the server */
+⋮----
+/* helper to grab/insert the picker container */
+const routePickerRoot = () =>
+document.getElementById('route-picker') ??
+⋮----
+const el = document.createElement('div');
+⋮----
+document.getElementById('input-fields').appendChild(el);
+⋮----
+/* ──────────────── Map init ──────────────── */
+⋮----
+map = new google.maps.Map(document.getElementById('map'), {
+⋮----
+directionsService  = new google.maps.DirectionsService();
+directionsRenderer = new google.maps.DirectionsRenderer({
+⋮----
+suppressMarkers: true,   // we drop our own car marker
+preserveViewport: true   // don’t auto‑zoom; we’ll fit bounds ourselves
+⋮----
+/* Simulate‑Drive button (injected so HTML stays clean) */
+simulateBtn             = document.createElement('button');
+⋮----
+document.getElementById('input-fields').appendChild(simulateBtn);
+simulateBtn.addEventListener('click', simulateDrive);
+⋮----
+/* ──────────────── Route display & prep ──────────────── */
+function displayRoute(route) {
+if (!route?.legs?.length) { console.error('Invalid route data'); return; }
+⋮----
+/* ① Clear any previously drawn polyline */
+drawnPolyline?.setMap(null);
+⋮----
+/* ② Draw the Google overview_polyline so the map always matches the server’s route */
+⋮----
+google.maps.geometry.encoding.decodePath(route.overview_polyline.points);
+drawnPolyline = new google.maps.Polyline({
+⋮----
+/* ③ Fit viewport neatly around that path */
+const bounds = new google.maps.LatLngBounds();
+fullPath.forEach(p => bounds.extend(p));
+map.fitBounds(bounds);
+⋮----
+/* ④ Store & continue with simulation prep */
+⋮----
+prepareSimulationFromSteps(route);
+⋮----
+function prepareSimulationFromSteps(route) {
+⋮----
+/* Build waypoint list */
+waypoints = steps.map(s =>
+new google.maps.LatLng(s.end_location.lat, s.end_location.lng)
+⋮----
+/* Google fallback packets (raw html stripped) */
+voicePackets = steps.map(s => ({
+text: s.html_instructions.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim(),
+⋮----
+/* Async: fetch enriched packets (LLM + hotspot) */
+fetchEnhancedPackets()
+.then(pkts => { if (pkts.length) voicePackets = pkts; })
+.catch(err  => console.warn('Enhanced stream failed; using fallback', err));
+⋮----
+/* ──────────────── SSE fetch helper ──────────────── */
+async function fetchEnhancedPackets() {
+const resp = await fetch('/stream_route', {
+⋮----
+body   : JSON.stringify({
+⋮----
+if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+⋮----
+const reader  = resp.body.getReader();
+const decode  = new TextDecoder();
+⋮----
+const { value, done } = await reader.read();
+⋮----
+buffer += decode.decode(value, { stream: true });
+const chunks = buffer.split('\n\n');
+buffer = chunks.pop();
+chunks.forEach(chunk => {
+if (chunk.startsWith('data: ')) {
+try { packets.push(JSON.parse(chunk.slice(6))); } catch {}
+⋮----
+/* ──────────────── Simulation (3 s per step) ──────────────── */
+function simulateDrive() {
+clearInterval(simulationInterval);
+[marker, traveledPath, upcomingPath].forEach(obj => obj?.setMap?.(null));
+⋮----
+/* ① Create invisible polylines (map omitted) so we can still manage getPath() */
+upcomingPath = new google.maps.Polyline({
+⋮----
+traveledPath = new google.maps.Polyline({
+⋮----
+/* ② Car marker */
+marker = new google.maps.Marker({
+⋮----
+scaledSize: new google.maps.Size(12, 12)
+⋮----
+map.panTo(waypoints[0]);
+⋮----
+/* ③ Animate through waypoints */
+⋮----
+simulationInterval = setInterval(() => {
+⋮----
+handleVoicePacket({
+⋮----
+latitude : waypoints.at(-1).lat(),
+longitude: waypoints.at(-1).lng()
+⋮----
+marker.setPosition(pos);
+traveledPath.getPath().push(pos);       // ← invisible polyline keeps internal path list
+upcomingPath.getPath().removeAt(0);
+map.panTo(pos);
+⋮----
+handleVoicePacket(pkt);
+⋮----
+/* ──────────────── Route‑picker UI (radio cards) ──────────────── */
+function renderRoutePicker(details) {
+const root = routePickerRoot();
+⋮----
+details.forEach((d, i) => {
+const card = document.createElement('label');
+⋮----
+Time ${d.duration.toFixed(0)} min<br>
+⋮----
+card.querySelector('input').addEventListener('change', () => {
+⋮----
+displayRoute(currentRoutes[currentRouteIndex]);
+⋮----
+root.appendChild(card);
+⋮----
+/* ──────────────── Server call: safest route & details ──────────────── */
+function findSafeRoute() {
+const start = document.getElementById('start-location').value.trim();
+const end   = document.getElementById('end-location').value.trim();
+if (!start || !end) return alert('Please enter both locations');
+⋮----
+document.getElementById('map-container').style.opacity = 0.5;
+fetch('/analyze_route', {
+⋮----
+body   : JSON.stringify({ start, end })
+⋮----
+.then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
+.then(data => {
+⋮----
+/* Determine safest route */
+currentRouteIndex = data.route_details.reduce(
+⋮----
+displayRouteDetails(data.route_details);
+renderRoutePicker(data.route_details);
+⋮----
+.catch(err => { console.error(err); alert(err.error || err); })
+.finally(() => {
+document.getElementById('map-container').style.opacity = 1;
+⋮----
+/* ──────────────── Chat helpers ──────────────── */
+function displayRouteDetails(details) {
+const chat = document.getElementById('chat-container');
+⋮----
+`Safety ${d.safety_score}/10 • Time ${d.duration.toFixed(0)} min • Dist ${d.distance}\n` +
+`First steps:\n${d.steps.join('\n')}`;
+addMessageToChat(msg, 'bot');
+⋮----
+function sendMessage() {
+const input = document.getElementById('user-input');
+const txt   = input.value.trim();
+⋮----
+const btn = document.querySelector('#input-container button');
+⋮----
+addMessageToChat(txt, 'user'); input.value = '';
+⋮----
+fetch('/chat', {
+⋮----
+body   : JSON.stringify({ message: txt })
+⋮----
+.then(d => addMessageToChat(d.response ?? `Error: ${d.error}`, 'bot'))
+.catch(e => addMessageToChat(`Error: ${e.error || e}`, 'bot'))
+⋮----
+input.focus();
+⋮----
+function addMessageToChat(msg, who) {
+const c  = document.getElementById('chat-container');
+⋮----
+el.classList.add('message', `${who}-message`);
+el.innerHTML = msg.replace(/\n/g, '<br>');
+c.appendChild(el);
+el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+⋮----
+function handleVoicePacket(pkt) {
+addMessageToChat(pkt.text, 'bot');
+speechSynthesis.speak(new SpeechSynthesisUtterance(pkt.text));
+⋮----
+/* ──────────────── DOM wiring ──────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+document.getElementById('start-button').addEventListener('click', findSafeRoute);
+document.getElementById('user-input').addEventListener('keypress', e => {
+if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+⋮----
+document.querySelector('#input-container button').addEventListener('click', sendMessage);
+⋮----
+addMessageToChat(
+</file>
+
 <file path="app.py">
-# Configure logging
+# --------------------------------------------------
+# basic setup
 ⋮----
 logger = logging.getLogger(__name__)
 ⋮----
-# Load environment variables
+load_dotenv()  # .env
 ⋮----
-# Initialize Flask
+google_maps_api_key   = os.getenv("GOOGLE_MAPS_API_KEY")
+VOICE_MODEL           = os.getenv("VOICE_MODEL", "gpt-3.5-turbo")
+⋮----
 app = Flask(__name__)
 ⋮----
-# API keys
+# ML safety model (warm‑up at startup)
 ⋮----
-google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY')
-VOICE_MODEL = os.getenv('VOICE_MODEL', 'gpt-3.5-turbo')
+_safety_model = train_model(
 ⋮----
-# Train safety model on startup
+# routes
 ⋮----
-crash_data = load_crash_data('data.csv')
-hotspot_data = identify_crash_hotspots(crash_data)
-safety_model = train_model(hotspot_data)
-⋮----
-@app.route('/')
+@app.route("/")
 def home()
 ⋮----
-@app.route('/analyze_route', methods=['POST'])
+# ---------- 1. analyse multiple routes ----------
+⋮----
+@app.route("/analyze_route", methods=["POST"])
 def analyze_route()
 ⋮----
-data = request.json or {}
-start = data.get('start')
-end = data.get('end')
+data  = request.json or {}
+start = data.get("start")
+end   = data.get("end")
 ⋮----
 routes = get_google_routes(google_maps_api_key, start, end)
 ⋮----
 details = []
 ⋮----
-@app.route('/stream_route', methods=['POST'])
+# index of safest route (highest score)
+safest_idx = int(np.argmax([d["safety_score"] for d in details]))
+⋮----
+except Exception as exc:  # noqa
+⋮----
+# ---------- 2. stream a chosen route (or gps sequence) ----------
+⋮----
+@app.route("/stream_route", methods=["POST"])
 def stream_route()
 ⋮----
 """
-    Dual‐mode SSE endpoint:
-      - If client sends a `gps_sequence`, we drive simulation mode,
-        generating voice updates via generate_voice_update().
-      - Otherwise, if client sends `start`+`end`, we pull Google steps
-        and call generate_enhanced_instruction() for each turn.
-      - In both cases we finally emit an arrival message.
+    Two modes:
+
+    • `gps_sequence`  – list of {latitude, longitude}
+       → generate_voice_update (continuous‑drive)
+
+    • `start`, `end`  (+ optional `route_index`, default 0)
+       → pull Google Directions steps for that route
+         and call generate_enhanced_instruction for each turn.
     """
+data = request.json or {}
 ⋮----
-gps_sequence = data.get('gps_sequence')
+# --------------------------------------------------
+#  mode A – pre‑defined GPS track
 ⋮----
-# Mode 1: direct gps_sequence → generate_voice_update
+seq           = data["gps_sequence"]
+enhanced_turn = False
 ⋮----
-seq = gps_sequence
-use_enhanced = False
+#  mode B – Google route steps
 ⋮----
-# Mode 2: start/end → fetch Google steps + generate_enhanced_instruction
+route_idx = int(data.get("route_index", 0))
+routes    = get_google_routes(google_maps_api_key, start, end)
 ⋮----
-steps = routes[0]['legs'][0]['steps']
-seq = [{
-use_enhanced = True
+chosen   = routes[route_idx]
+steps    = chosen["legs"][0]["steps"]
+seq      = [
+enhanced_turn = True
+⋮----
+#  SSE generator
 ⋮----
 def event_stream()
 ⋮----
 prev = seq[0]
 ⋮----
-lat = point['latitude']
-lng = point['longitude']
+text = generate_enhanced_instruction(
 ⋮----
-# Turn‑by‑turn LLM instructions
-instr = generate_enhanced_instruction(
+text = generate_voice_update(
 ⋮----
-# Continuous‐drive voice updates
-instr = generate_voice_update(
+prev = pt
 ⋮----
-packet = {'text': instr, 'latitude': lat, 'longitude': lng}
+# arrival
+arr = dict(
 ⋮----
-prev = point
+# ---------- 3. tiny helper routes ----------
 ⋮----
-# Final arrival message
-arrival = {
-⋮----
-@app.route('/test_openai', methods=['GET'])
-def test_openai()
-⋮----
-resp = openai.chat.completions.create(
-⋮----
-@app.route('/chat', methods=['POST'])
+@app.route("/chat", methods=["POST"])
 def chat()
 ⋮----
-user_msg = request.json.get('message')
+user_msg = request.json.get("message")
 ⋮----
-conversation = session.setdefault('conversation', [])
+convo = session.setdefault("conversation", [])
 ⋮----
-initial = f.read()
+system_prompt = f.read()
 ⋮----
-messages = (
+msgs = [{"role": "system", "content": system_prompt}] + convo[-10:] + [
+resp = openai.chat.completions.create(
+bot = resp.choices[0].message.content
 ⋮----
-resp = openai.ChatCompletion.create(
-bot_msg = resp.choices[0].message.content
-⋮----
-@app.route('/clear_session', methods=['GET'])
+@app.route("/clear_session")
 def clear_session()
+⋮----
+# ----------  entrypoint ----------
 </file>
 
 </files>

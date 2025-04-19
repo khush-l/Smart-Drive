@@ -152,7 +152,6 @@ def stream_route():
 
         # arrival
         arr = dict(
-            text="You have arrived at your destination",
             latitude=seq[-1]["latitude"],
             longitude=seq[-1]["longitude"],
         )

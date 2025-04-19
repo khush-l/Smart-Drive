@@ -1,8 +1,8 @@
 from flask import Flask, render_template, request, jsonify, session, Response
 from flask_session import Session
-import openai
-import os
+import openai, os, json, logging, numpy as np
 from dotenv import load_dotenv
+
 from Route_Safety import (
     get_google_routes,
     calculate_safety_score,
@@ -10,189 +10,190 @@ from Route_Safety import (
     identify_crash_hotspots,
     load_crash_data,
     generate_voice_update,
-    generate_enhanced_instruction
+    generate_enhanced_instruction,
 )
-import logging
-import json
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+# --------------------------------------------------
+# basic setup
+# --------------------------------------------------
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+load_dotenv()  # .env
+openai.api_key        = os.getenv("OPENAI_API_KEY")
+google_maps_api_key   = os.getenv("GOOGLE_MAPS_API_KEY")
+VOICE_MODEL           = os.getenv("VOICE_MODEL", "gpt-3.5-turbo")
 
-# Initialize Flask
 app = Flask(__name__)
-app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
+app.config.update(SESSION_PERMANENT=False, SESSION_TYPE="filesystem")
 Session(app)
 
-# API keys
-openai.api_key = os.getenv('OPENAI_API_KEY')
-google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY')
-VOICE_MODEL = os.getenv('VOICE_MODEL', 'gpt-3.5-turbo')
+# --------------------------------------------------
+# ML safety model (warm‑up at startup)
+# --------------------------------------------------
+logger.info("Training safety model …")
+_safety_model = train_model(
+    identify_crash_hotspots(load_crash_data("data.csv"))
+)
+logger.info("✓ safety model ready")
 
-# Train safety model on startup
-logger.info("Loading crash data and training model...")
-crash_data = load_crash_data('data.csv')
-hotspot_data = identify_crash_hotspots(crash_data)
-safety_model = train_model(hotspot_data)
-logger.info("Model training complete!")
-
-@app.route('/')
+# --------------------------------------------------
+# routes
+# --------------------------------------------------
+@app.route("/")
 def home():
-    return render_template('index.html', google_maps_api_key=google_maps_api_key)
+    return render_template("index.html", google_maps_api_key=google_maps_api_key)
 
-@app.route('/analyze_route', methods=['POST'])
+
+# ---------- 1. analyse multiple routes ----------
+@app.route("/analyze_route", methods=["POST"])
 def analyze_route():
-    data = request.json or {}
-    start = data.get('start')
-    end = data.get('end')
-    if not start or not end:
-        return jsonify({'error': 'Please provide both start and end locations'}), 400
+    data  = request.json or {}
+    start = data.get("start")
+    end   = data.get("end")
+    if not (start and end):
+        return jsonify(error="Please provide both start and end locations"), 400
 
     try:
         routes = get_google_routes(google_maps_api_key, start, end)
         if not routes:
-            return jsonify({'error': 'No routes found'}), 404
+            return jsonify(error="No routes found"), 404
 
         details = []
-        for route in routes:
-            score, duration = calculate_safety_score(route, safety_model)
-            details.append({
-                'safety_score': score,
-                'duration':     duration,
-                'distance':     route['legs'][0]['distance']['text'],
-                'steps':        [step['html_instructions'] for step in route['legs'][0]['steps'][:3]]
-            })
+        for r in routes:
+            score, mins = calculate_safety_score(r, _safety_model)
+            details.append(
+                dict(
+                    safety_score=score,
+                    duration=mins,
+                    distance=r["legs"][0]["distance"]["text"],
+                    steps=[s["html_instructions"] for s in r["legs"][0]["steps"][:3]],
+                )
+            )
 
-        return jsonify({'routes': routes, 'route_details': details})
-    except Exception as e:
-        logger.error(f"Error in analyze_route: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        # index of safest route (highest score)
+        safest_idx = int(np.argmax([d["safety_score"] for d in details]))
 
-@app.route('/stream_route', methods=['POST'])
+        return jsonify(routes=routes, route_details=details, safest_index=safest_idx)
+    except Exception as exc:  # noqa
+        logger.exception("analyse_route failed")
+        return jsonify(error=str(exc)), 500
+
+
+# ---------- 2. stream a chosen route (or gps sequence) ----------
+@app.route("/stream_route", methods=["POST"])
 def stream_route():
     """
-    Dual‐mode SSE endpoint:
-      - If client sends a `gps_sequence`, we drive simulation mode,
-        generating voice updates via generate_voice_update().
-      - Otherwise, if client sends `start`+`end`, we pull Google steps
-        and call generate_enhanced_instruction() for each turn.
-      - In both cases we finally emit an arrival message.
+    Two modes:
+
+    • `gps_sequence`  – list of {latitude, longitude}
+       → generate_voice_update (continuous‑drive)
+
+    • `start`, `end`  (+ optional `route_index`, default 0)
+       → pull Google Directions steps for that route
+         and call generate_enhanced_instruction for each turn.
     """
     data = request.json or {}
-    gps_sequence = data.get('gps_sequence')
-    start = data.get('start')
-    end = data.get('end')
 
-    # Mode 1: direct gps_sequence → generate_voice_update
-    if gps_sequence:
-        seq = gps_sequence
-        use_enhanced = False
+    # --------------------------------------------------
+    #  mode A – pre‑defined GPS track
+    # --------------------------------------------------
+    if "gps_sequence" in data:
+        seq           = data["gps_sequence"]
+        enhanced_turn = False
 
-    # Mode 2: start/end → fetch Google steps + generate_enhanced_instruction
-    elif start and end:
-        routes = get_google_routes(google_maps_api_key, start, end)
-        if not routes:
-            return jsonify({'error': 'No routes found'}), 404
-        steps = routes[0]['legs'][0]['steps']
-        seq = [{
-            'latitude':            step['end_location']['lat'],
-            'longitude':           step['end_location']['lng'],
-            'html_instructions':   step['html_instructions']
-        } for step in steps]
-        use_enhanced = True
-
+    # --------------------------------------------------
+    #  mode B – Google route steps
+    # --------------------------------------------------
     else:
-        return jsonify({'error': 'Provide either gps_sequence or start & end'}), 400
+        start = data.get("start")
+        end   = data.get("end")
+        if not (start and end):
+            return jsonify(error="Provide gps_sequence OR start & end"), 400
 
+        route_idx = int(data.get("route_index", 0))
+        routes    = get_google_routes(google_maps_api_key, start, end)
+        if not routes:
+            return jsonify(error="No routes found"), 404
+        if route_idx >= len(routes):
+            return jsonify(error="route_index out of range"), 400
+
+        chosen   = routes[route_idx]
+        steps    = chosen["legs"][0]["steps"]
+        seq      = [
+            dict(
+                latitude=s["end_location"]["lat"],
+                longitude=s["end_location"]["lng"],
+                html_instructions=s["html_instructions"],
+            )
+            for s in steps
+        ]
+        enhanced_turn = True
+
+    # --------------------------------------------------
+    #  SSE generator
+    # --------------------------------------------------
     def event_stream():
         prev = seq[0]
-        for point in seq:
-            lat = point['latitude']
-            lng = point['longitude']
+        for pt in seq:
+            lat, lng = pt["latitude"], pt["longitude"]
 
-            if use_enhanced:
-                # Turn‑by‑turn LLM instructions
-                instr = generate_enhanced_instruction(
-                    point['html_instructions'],
-                    lat, lng,
-                    model_name=VOICE_MODEL
+            if enhanced_turn:
+                text = generate_enhanced_instruction(
+                    pt["html_instructions"], lat, lng, model_name=VOICE_MODEL
                 )
             else:
-                # Continuous‐drive voice updates
-                instr = generate_voice_update(
-                    lat, lng,
-                    prev.get('latitude'), prev.get('longitude'),
-                    model_name=VOICE_MODEL
+                text = generate_voice_update(
+                    lat, lng, prev["latitude"], prev["longitude"], model_name=VOICE_MODEL
                 )
 
-            packet = {'text': instr, 'latitude': lat, 'longitude': lng}
-            yield f"data: {json.dumps(packet)}\n\n"
-            prev = point
+            yield f"data: {json.dumps(dict(text=text, latitude=lat, longitude=lng))}\n\n"
+            prev = pt
 
-        # Final arrival message
-        arrival = {
-            'text':      'You have arrived at your destination',
-            'latitude':  seq[-1]['latitude'],
-            'longitude': seq[-1]['longitude']
-        }
-        yield f"data: {json.dumps(arrival)}\n\n"
-
-    return Response(event_stream(), mimetype='text/event-stream')
-
-@app.route('/test_openai', methods=['GET'])
-def test_openai():
-    try:
-        logger.debug("Testing OpenAI API")
-        resp = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=10
+        # arrival
+        arr = dict(
+            text="You have arrived at your destination",
+            latitude=seq[-1]["latitude"],
+            longitude=seq[-1]["longitude"],
         )
-        return jsonify({'status': 'success', 'message': resp.choices[0].message.content})
-    except Exception as e:
-        logger.error(f"OpenAI test failed: {e}", exc_info=True)
-        return jsonify({'status': 'error', 'error': str(e)}), 500
+        yield f"data: {json.dumps(arr)}\n\n"
 
-@app.route('/chat', methods=['POST'])
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
+# ---------- 3. tiny helper routes ----------
+@app.route("/chat", methods=["POST"])
 def chat():
     try:
-        user_msg = request.json.get('message')
+        user_msg = request.json.get("message")
         if not user_msg:
-            return jsonify({'error': 'No message provided'}), 400
+            return jsonify(error="No message provided"), 400
 
-        conversation = session.setdefault('conversation', [])
-        with open('topic_prompts/initial_prompt.txt') as f:
-            initial = f.read()
+        convo = session.setdefault("conversation", [])
+        with open("topic_prompts/initial_prompt.txt") as f:
+            system_prompt = f.read()
 
-        messages = (
-            [{"role": "system",  "content": initial}]
-            + conversation[-10:]
-            + [{"role": "user", "content": user_msg}]
+        msgs = [{"role": "system", "content": system_prompt}] + convo[-10:] + [
+            {"role": "user", "content": user_msg}
+        ]
+        resp = openai.chat.completions.create(
+            model="gpt-3.5-turbo", messages=msgs, temperature=0.7, max_tokens=500
         )
-
-        resp = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=500
-        )
-        bot_msg = resp.choices[0].message.content
-        conversation.append({"role": "assistant", "content": bot_msg})
+        bot = resp.choices[0].message.content
+        convo.append({"role": "assistant", "content": bot})
         session.modified = True
+        return jsonify(response=bot)
+    except Exception as exc:  # noqa
+        logger.exception("chat endpoint failed")
+        return jsonify(error=str(exc)), 500
 
-        return jsonify({'response': bot_msg})
-    except Exception as e:
-        logger.error(f"Chat error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
 
-@app.route('/clear_session', methods=['GET'])
+@app.route("/clear_session")
 def clear_session():
     session.clear()
-    return jsonify({'status': 'session cleared'})
+    return jsonify(status="session cleared")
 
-if __name__ == '__main__':
+
+# ----------  entrypoint ----------
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)

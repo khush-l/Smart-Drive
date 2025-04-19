@@ -1,0 +1,1346 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: data.csv, output_files/**
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    python-test.yml
+static/
+  index.css
+  script.js
+templates/
+  index.html
+tests/
+  __init__.py
+  test_route_safety.py
+  test_routes.py
+topic_prompts/
+  initial_prompt.txt
+  voice_route_demo_prompt.txt
+.gitignore
+app.py
+README.md
+requirements-test.txt
+requirements.txt
+Route_Safety.py
+testing.ipynb
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="tests/__init__.py">
+# This file makes the tests directory a Python package
+</file>
+
+<file path="tests/test_route_safety.py">
+@pytest.fixture
+def sample_crash_data()
+⋮----
+"""Create sample crash data for testing"""
+⋮----
+30.2672, 30.2772, 30.2872, 30.2972, 30.3072,  # Different lat bins
+⋮----
+-97.7431, -97.7531, -97.7631, -97.7731, -97.7831,  # Different lng bins
+⋮----
+@pytest.fixture
+def sample_route()
+⋮----
+"""Create a sample route for testing"""
+⋮----
+def test_load_crash_data(sample_crash_data, tmp_path)
+⋮----
+"""Test loading crash data"""
+# Save sample data to temporary file
+file_path = tmp_path / "test_data.csv"
+⋮----
+# Test loading
+loaded_data = load_crash_data(str(file_path))
+⋮----
+def test_load_crash_data_invalid_file(tmp_path)
+⋮----
+"""Test loading crash data with invalid file"""
+⋮----
+def test_identify_crash_hotspots(sample_crash_data)
+⋮----
+"""Test hotspot identification"""
+hotspots = identify_crash_hotspots(sample_crash_data)
+⋮----
+def test_train_model(sample_crash_data)
+⋮----
+"""Test model training"""
+⋮----
+model = train_model(hotspots)
+⋮----
+# Test prediction
+test_input = np.array([[30.2672, -97.7431]])
+prediction = model.predict(test_input)
+⋮----
+def test_calculate_safety_score(sample_route)
+⋮----
+"""Test safety score calculation"""
+⋮----
+def test_get_google_routes()
+⋮----
+"""Test Google Maps API route fetching"""
+⋮----
+routes = get_google_routes("test_key", "Austin, TX", "Houston, TX")
+⋮----
+def test_get_google_routes_error()
+⋮----
+"""Test Google Maps API error handling"""
+</file>
+
+<file path="topic_prompts/initial_prompt.txt">
+You are SmartDrive AI Assistant, an informative and helpful chatbot that assists users in understanding how their route is evaluated for safety and how the SmartDrive AI system works.
+
+SmartDrive is an AI-powered route safety tool developed using crash data from Austin, Texas. It uses clustering algorithms (DBSCAN) to detect accident hotspots and assigns a Crash Severity Index to different zones based on crash frequency and severity. A machine learning model (Random Forest Regressor) then predicts the potential risk level for a given route.
+
+Your job is to:
+Help users understand how SmartDrive determines whether a route is high-risk or low-risk.
+Explain how the clustering and crash severity model works in simple terms if asked.
+Answer user questions about how the AI was trained, what kind of data was used, and what makes a zone high-risk.
+Provide basic safety suggestions based on the user’s route (if provided).
+Remain clear, concise, and friendly in your explanations.
+If unsure about something, explain the limitation and suggest where the user could learn more.
+
+Example questions users may ask:
+“Why is this route considered high-risk?”
+“How does your AI figure out which areas are dangerous?”
+“Can you explain how your crash data works?”
+“What makes SmartDrive better than Google Maps?”
+
+Always respond with helpful and respectful language, even if the question is unclear. Your goal is to educate and assist users while demonstrating the value of the SmartDrive AI system.
+</file>
+
+<file path="topic_prompts/voice_route_demo_prompt.txt">
+# topic_prompts/voice_route_demo_prompt.txt
+
+### System Message
+You are SmartDrive Voice Assistant, a voice‑first GPS‑driven safety companion. For each incoming position update:
+- Load crash hotspots from output_files/high_crash_zones.geojson and apply a 50 m buffer.
+- If the coordinate is inside or within 50 m of a hotspot, respond with a concise warning:
+  “Alert: High‑crash zone ahead. Proceed with caution.”
+- Otherwise, respond with a brief navigation update, e.g.:
+  “Proceed straight for 200 meters.”
+- Keep each response under 20 words, plain language, TTS‑friendly.
+- Use deterministic settings (temperature=0, top_p=0.1).
+- Output **only** the spoken text (no JSON or markup).
+
+### User Message
+Coordinate update:
+  latitude: {latitude}
+  longitude: {longitude}
+Previous coordinate:
+  latitude: {prev_latitude}
+  longitude: {prev_longitude}
+</file>
+
+<file path="tests/test_routes.py">
+@pytest.fixture
+def client()
+⋮----
+def test_home_route(client)
+⋮----
+"""Test the home route returns a successful response"""
+response = client.get('/')
+⋮----
+def test_test_openai_route(client)
+⋮----
+"""Test the OpenAI test route returns a successful response"""
+⋮----
+response = client.get('/test_openai')
+# Accept both 200 and 500 status codes since API key might be missing in CI
+⋮----
+data = json.loads(response.data)
+⋮----
+def test_analyze_route_missing_params(client)
+⋮----
+"""Test analyze_route with missing parameters"""
+response = client.post('/analyze_route', json={})
+⋮----
+def test_analyze_route_success(client)
+⋮----
+"""Test successful route analysis"""
+⋮----
+response = client.post('/analyze_route', json={
+# Accept both 200 and 404 status codes since API key might be missing in CI
+⋮----
+def test_chat_route(client)
+⋮----
+"""Test the chat route"""
+⋮----
+response = client.post('/chat', json={'message': 'Hello'})
+⋮----
+def test_chat_route_missing_message(client)
+⋮----
+"""Test chat route with missing message"""
+response = client.post('/chat', json={})
+⋮----
+def test_clear_session(client)
+⋮----
+"""Test the clear_session route"""
+response = client.get('/clear_session')
+</file>
+
+<file path=".gitignore">
+# Environment variables
+.env
+.env.*
+!.env.example
+*.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Flask Session
+flask_session/
+</file>
+
+<file path="requirements-test.txt">
+pytest==7.4.0
+pytest-cov==4.1.0
+requests==2.32.2
+pytest-mock==3.12.0
+python-dotenv==1.0.0
+</file>
+
+<file path="requirements.txt">
+flask>=3.0.0
+flask-session>=0.6.0
+openai>=1.0.0
+openai-whisper>=1.0.0  # Added for voice transcription support
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+geopy>=2.3.0
+shapely>=2.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+joblib>=1.3.0
+Werkzeug>=3.0.0
+</file>
+
+<file path=".github/workflows/python-test.yml">
+name: Python Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9]
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Fetch all history for all branches and tags
+    
+    - name: Show commit being tested
+      run: |
+        echo "Testing commit: ${{ github.sha }}"
+        git log -1 --pretty=format:"%h %s"
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-test.txt
+    
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=app --cov=Route_Safety --cov-report=xml tests/
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
+    
+    - name: Upload coverage to Codecov
+      if: env.CODECOV_TOKEN != ''
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+</file>
+
+<file path="testing.ipynb">
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Mean Squared Error on test data: 0.32457581361893867\n",
+      "Found 3 route options.\n",
+      "Route 1: Safety Score 6.68/10\n",
+      "Route Summary:\n",
+      "  - Head <b>east</b> on <b>E 5th St.</b> toward <b>Brazos St</b> (0.5 mi, 3 mins)\n",
+      "  - Turn <b>right</b> onto <b>S I-35 Frontage Rd</b> (177 ft, 1 min)\n",
+      "  - Slight <b>left</b> toward <b>N Interstate 35 Frontage Rd</b> (381 ft, 1 min)\n",
+      "...\n",
+      "Route 2: Safety Score 6.52/10\n",
+      "Route Summary:\n",
+      "  - Head <b>east</b> on <b>E 5th St.</b> toward <b>Brazos St</b> (0.5 mi, 3 mins)\n",
+      "  - Turn <b>right</b> onto <b>S I-35 Frontage Rd</b> (177 ft, 1 min)\n",
+      "  - Slight <b>left</b> toward <b>N Interstate 35 Frontage Rd</b> (381 ft, 1 min)\n",
+      "...\n",
+      "Route 3: Safety Score 6.86/10\n",
+      "Route Summary:\n",
+      "  - Head <b>east</b> on <b>E 5th St.</b> toward <b>Brazos St</b> (410 ft, 1 min)\n",
+      "  - Turn <b>right</b> onto <b>Brazos St</b> (358 ft, 1 min)\n",
+      "  - Turn <b>right</b> onto <b>E 4th St</b> (436 ft, 1 min)\n",
+      "...\n",
+      "Safest Route: 3 with Safety Score: 6.86/10\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n",
+      "/Users/khushl/Documents/GitHub/Smart-Drive/venv/lib/python3.11/site-packages/sklearn/utils/validation.py:2739: UserWarning: X does not have valid feature names, but RandomForestRegressor was fitted with feature names\n",
+      "  warnings.warn(\n"
+     ]
+    }
+   ],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import json\n",
+    "import requests\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.ensemble import RandomForestRegressor\n",
+    "from sklearn.metrics import mean_squared_error\n",
+    "from geopy.distance import geodesic\n",
+    "from shapely.geometry import Point, Polygon\n",
+    "from sklearn.preprocessing import StandardScaler\n",
+    "import os\n",
+    "\n",
+    "# 1. Processing Crash Data and Training the AI Model\n",
+    "\n",
+    "def load_crash_data(filename):\n",
+    "    data = pd.read_csv(filename, low_memory=False)\n",
+    "    data = data[['latitude', 'longitude', 'crash_sev_id', 'Crash timestamp (US/Central)']].dropna()\n",
+    "    return data\n",
+    "\n",
+    "\n",
+    "def identify_crash_hotspots(data, grid_size=0.01):\n",
+    "    data['lat_bin'] = (data['latitude'] // grid_size) * grid_size\n",
+    "    data['lng_bin'] = (data['longitude'] // grid_size) * grid_size\n",
+    "\n",
+    "    hotspot_severity = data.groupby(['lat_bin', 'lng_bin'])['crash_sev_id'].mean().reset_index()\n",
+    "    return hotspot_severity\n",
+    "\n",
+    "\n",
+    "def train_model(hotspot_data):\n",
+    "    X = hotspot_data[['lat_bin', 'lng_bin']]\n",
+    "    y = hotspot_data['crash_sev_id']\n",
+    "\n",
+    "    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n",
+    "\n",
+    "    model = RandomForestRegressor(n_estimators=100, random_state=42)\n",
+    "    model.fit(X_train, y_train)\n",
+    "\n",
+    "    y_pred = model.predict(X_test)\n",
+    "    mse = mean_squared_error(y_test, y_pred)\n",
+    "    print(f'Mean Squared Error on test data: {mse}')\n",
+    "\n",
+    "    return model\n",
+    "\n",
+    "\n",
+    "# 2. Fetching Routes and Evaluating with AI Model\n",
+    "\n",
+    "def get_google_routes(api_key):\n",
+    "    base_url = \"https://maps.googleapis.com/maps/api/directions/json\"\n",
+    "    params = {\n",
+    "        \"origin\": \"Austin, TX\",\n",
+    "        \"destination\": \"Houston, TX\",\n",
+    "        \"mode\": \"driving\",\n",
+    "        \"alternatives\": \"true\",\n",
+    "        \"key\": api_key\n",
+    "    }\n",
+    "\n",
+    "    response = requests.get(base_url, params=params)\n",
+    "\n",
+    "    if response.status_code == 200:\n",
+    "        routes = response.json().get(\"routes\", [])\n",
+    "        print(f\"Found {len(routes)} route options.\")\n",
+    "        return routes\n",
+    "    else:\n",
+    "        print(f\"Error: {response.status_code} - {response.text}\")\n",
+    "        return []\n",
+    "\n",
+    "\n",
+    "def calculate_safety_score(route, model):\n",
+    "    scores = []\n",
+    "    total_duration = 0\n",
+    "\n",
+    "    for leg in route['legs']:\n",
+    "        total_duration += leg['duration']['value'] / 60  # Convert to minutes\n",
+    "        for step in leg['steps']:\n",
+    "            lat = step['end_location']['lat']\n",
+    "            lng = step['end_location']['lng']\n",
+    "            safety_score = model.predict(np.array([[lat, lng]]))[0]\n",
+    "            scores.append(safety_score)\n",
+    "\n",
+    "    avg_score = np.mean(scores) if scores else 0\n",
+    "    return min(max(10 - avg_score, 1), 10), total_duration\n",
+    "\n",
+    "\n",
+    "# Putting it all together\n",
+    "\n",
+    "def main():\n",
+    "    api_key = input(\"Enter your Google Maps API key: \")\n",
+    "    crash_data_file = 'data.csv'\n",
+    "\n",
+    "    data = load_crash_data(crash_data_file)\n",
+    "    hotspot_data = identify_crash_hotspots(data)\n",
+    "    model = train_model(hotspot_data)\n",
+    "\n",
+    "    routes = get_google_routes(api_key)\n",
+    "    \n",
+    "    safety_scores_and_times = [calculate_safety_score(route, model) for route in routes]\n",
+    "    \n",
+    "    for i, (route, (score, duration)) in enumerate(zip(routes, safety_scores_and_times)):\n",
+    "        print(f\"Route {i + 1}: Safety Score {score:.2f}/10, Estimated Time: {duration:.2f} mins\")\n",
+    "        print(\"Route Summary:\")\n",
+    "        for leg in route['legs']:\n",
+    "            for step in leg['steps'][:3]:  # Show first few steps for brevity\n",
+    "                print(f\"  - {step['html_instructions']} ({step['distance']['text']}, {step['duration']['text']})\")\n",
+    "            print(\"...\")\n",
+    "\n",
+    "    safest_route_idx = np.argmax([score for score, _ in safety_scores_and_times])\n",
+    "    print(f\"Safest Route: {safest_route_idx + 1} with Safety Score: {safety_scores_and_times[safest_route_idx][0]:.2f}/10, Estimated Time: {safety_scores_and_times[safest_route_idx][1]:.2f} mins\")\n",
+    "\n",
+    "\n",
+    "if __name__ == \"__main__\":\n",
+    "    main()\n",
+    "\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "venv",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.11"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
+</file>
+
+<file path="static/index.css">
+/* 
+ * Smart Drive AI - Main Stylesheet
+ * Defines the visual styling and layout of the application
+ */
+⋮----
+/* General page layout and background */
+body {
+⋮----
+/* Main container styling - white card with shadow */
+#container {
+⋮----
+/* Page header styling */
+h1 {
+⋮----
+/* Input fields section styling */
+#input-fields {
+⋮----
+#input-fields label {
+⋮----
+#input-fields input {
+⋮----
+/* Map container styling */
+#map-container {
+⋮----
+#map {
+⋮----
+/* Chat container styling */
+#chat-container {
+⋮----
+/* Chat message styling */
+.message {
+⋮----
+/* User message styling */
+.user-message {
+⋮----
+/* Bot message styling */
+.bot-message {
+⋮----
+/* Input container styling */
+#input-container {
+⋮----
+#user-input {
+⋮----
+/* Button styling */
+button {
+⋮----
+button:hover {
+⋮----
+/* Loading state styling */
+.loading {
+⋮----
+/* Responsive design for mobile devices */
+</file>
+
+<file path="Route_Safety.py">
+# Force reload environment variables
+⋮----
+# 1. Processing Crash Data and Training the AI Model
+⋮----
+def load_crash_data(filename)
+⋮----
+data = pd.read_csv(filename, low_memory=False)
+data = data[['latitude', 'longitude', 'crash_sev_id', 'Crash timestamp (US/Central)']].dropna()
+⋮----
+def identify_crash_hotspots(data, grid_size=0.01)
+⋮----
+hotspot_severity = data.groupby(['lat_bin', 'lng_bin'])['crash_sev_id'].mean().reset_index()
+⋮----
+def train_model(hotspot_data)
+⋮----
+X = hotspot_data[['lat_bin', 'lng_bin']]
+y = hotspot_data['crash_sev_id']
+⋮----
+model = RandomForestRegressor(n_estimators=100, random_state=42)
+⋮----
+y_pred = model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+⋮----
+model_file_path = 'trainedModel.joblib'
+⋮----
+# 2. Fetching Routes and Evaluating with AI Model
+⋮----
+def get_google_routes(api_key, origin, destination)
+⋮----
+"""
+    Fetch driving routes (including alternatives) from Google Directions API
+    and log both HTTP and API-level status messages for debugging.
+    """
+base_url = "https://maps.googleapis.com/maps/api/directions/json"
+params = {
+response = requests.get(base_url, params=params)
+⋮----
+data = response.json()
+⋮----
+api_status = data.get("status")
+error_message = data.get("error_message")
+⋮----
+routes = data.get("routes", [])
+⋮----
+def calculate_safety_score(route, model)
+⋮----
+scores = []
+total_duration = 0
+⋮----
+total_duration += leg['duration']['value'] / 60  # minutes
+⋮----
+lat = step['end_location']['lat']
+lng = step['end_location']['lng']
+df = pd.DataFrame([[lat, lng]], columns=['lat_bin', 'lng_bin'])
+safety_score = model.predict(df)[0]
+⋮----
+avg_score = np.mean(scores) if scores else 0
+⋮----
+# --- New hotspot and LLM‑enhanced instructions ---
+⋮----
+def load_hotspot_polygons(geojson_path="output_files/high_crash_zones.geojson")
+⋮----
+"""
+    Load crash-hotspot polygons from a GeoJSON file.
+    """
+polygons = []
+⋮----
+gj = json.load(f)
+⋮----
+coords = feat["geometry"]["coordinates"][0]
+poly = Polygon([(lng, lat) for lat, lng in coords])
+⋮----
+# Pre-load hotspot polygons once
+_HOTSPOT_POLYGONS = load_hotspot_polygons()
+⋮----
+def is_in_hotspot(lat, lng, buffer_m=50)
+⋮----
+"""
+    Check if a coordinate lies within or near (buffer_m) any crash-hotspot polygon.
+    """
+buffer_deg = buffer_m / 111320.0  # approximate meters to degrees
+point = Point(lng, lat)
+⋮----
+def generate_enhanced_instruction(html_instruction, lat, lng, model_name="gpt-3.5-turbo")
+⋮----
+"""
+    Given a Google html_instructions string and a coordinate, produce
+    a concise, TTS‑friendly navigation cue (with crash warning if needed).
+    """
+⋮----
+# Crash‑zone override
+⋮----
+# Otherwise, ask the LLM to rephrase
+prompt = (
+resp = openai.chat.completions.create(
+⋮----
+# --- Existing voice‑first function (if needed) ---
+⋮----
+def generate_voice_update(lat, lng, prev_lat, prev_lng, model_name="gpt-3.5-turbo")
+⋮----
+"""
+    Legacy voice‑first update generator using our demo prompt.
+    """
+⋮----
+prompt_file = "topic_prompts/voice_route_demo_prompt.txt"
+⋮----
+content = f.read()
+⋮----
+system_content = system_part.replace("### System Message", "").strip()
+user_template = user_part.strip()
+⋮----
+user_content = user_template.format(
+messages = [
+⋮----
+# --- Main CLI entrypoint ---
+⋮----
+def main()
+⋮----
+api_key = line.strip().split('=')[1]
+⋮----
+api_key = os.getenv('GOOGLE_MAPS_API_KEY')
+⋮----
+crash_data_file = 'data.csv'
+data = load_crash_data(crash_data_file)
+hotspot_data = identify_crash_hotspots(data)
+model = train_model(hotspot_data)
+⋮----
+routes = get_google_routes(api_key, "Austin, TX", "Houston, TX")
+safety_scores_and_times = [calculate_safety_score(route, model) for route in routes]
+⋮----
+safest_route_idx = np.argmax([score for score, _ in safety_scores_and_times])
+</file>
+
+<file path="static/script.js">
+/**
+ * Smart Drive AI - Main JavaScript File
+ * Handles map initialization, route finding, chat, and enriched turn‑by‑turn simulation
+ */
+⋮----
+// Global variables for map functionality
+⋮----
+// Simulation globals
+⋮----
+let waypoints = [];          // google.maps.LatLng for each step end
+let voicePackets = [];       // { text, latitude, longitude }
+⋮----
+/**
+ * Initialize the Google Map
+ */
+⋮----
+map = new google.maps.Map(document.getElementById('map'), {
+⋮----
+directionsService = new google.maps.DirectionsService();
+directionsRenderer = new google.maps.DirectionsRenderer({ map });
+⋮----
+// Create Simulate Drive button
+simulateBtn = document.createElement('button');
+⋮----
+document.getElementById('input-fields').appendChild(simulateBtn);
+simulateBtn.addEventListener('click', simulateDrive);
+⋮----
+/**
+ * Display a route on the map and prepare for simulation
+ */
+function displayRoute(route) {
+⋮----
+console.error('Invalid route data');
+⋮----
+directionsService.route(request, (result, status) => {
+⋮----
+directionsRenderer.setDirections(result);
+prepareSimulationFromSteps(route);
+⋮----
+console.error('Directions request failed:', status);
+⋮----
+/**
+ * Prepare step waypoints & prefetch enhanced voice packets
+ */
+function prepareSimulationFromSteps(route) {
+// Build google waypoints at each step's end_location
+⋮----
+waypoints = steps.map(step =>
+new google.maps.LatLng(
+⋮----
+// Fallback: Google’s raw turn instructions (stripped HTML)
+const googleFallback = steps.map(step => ({
+⋮----
+.replace(/<[^>]+>/g, '')
+.replace(/&nbsp;/g, ' ')
+.trim(),
+⋮----
+// Then asynchronously fetch the enriched SSE stream:
+fetchEnhancedPackets()
+.then(pkts => {
+⋮----
+.catch(err => {
+console.warn('Enhanced stream failed, using Google fallback:', err);
+⋮----
+// Enable simulate
+⋮----
+/**
+ * Fetch SSE from /stream_route for enriched instructions + hotspot warnings
+ */
+async function fetchEnhancedPackets() {
+const resp = await fetch('/stream_route', {
+⋮----
+body: JSON.stringify({ start: currentStart, end: currentEnd })
+⋮----
+if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+const reader = resp.body.getReader();
+const decoder = new TextDecoder();
+⋮----
+const { value, done } = await reader.read();
+⋮----
+buffer += decoder.decode(value, { stream: true });
+const parts = buffer.split('\n\n');
+buffer = parts.pop();
+⋮----
+if (part.startsWith('data: ')) {
+⋮----
+packets.push(JSON.parse(part.slice(6)));
+⋮----
+/**
+ * Animate the drive along step waypoints, 3s per step
+ */
+function simulateDrive() {
+clearInterval(simulationInterval);
+if (marker) marker.setMap(null);
+if (traveledPath) traveledPath.setMap(null);
+if (upcomingPath) upcomingPath.setMap(null);
+⋮----
+upcomingPath = new google.maps.Polyline({
+⋮----
+traveledPath = new google.maps.Polyline({
+⋮----
+marker = new google.maps.Marker({
+⋮----
+scaledSize: new google.maps.Size(12, 12)
+⋮----
+map.panTo(waypoints[0]);
+⋮----
+simulationInterval = setInterval(() => {
+⋮----
+handleVoicePacket({
+⋮----
+latitude: waypoints[waypoints.length - 1].lat(),
+longitude: waypoints[waypoints.length - 1].lng()
+⋮----
+marker.setPosition(pos);
+traveledPath.getPath().push(pos);
+upcomingPath.getPath().removeAt(0);
+map.panTo(pos);
+⋮----
+handleVoicePacket(pkt);
+⋮----
+}, 3000);  // 3 seconds per step
+⋮----
+/**
+ * Fetch & render safe route + details
+ */
+function findSafeRoute() {
+const start = document.getElementById('start-location').value;
+const end   = document.getElementById('end-location').value;
+⋮----
+alert('Please enter both locations');
+⋮----
+document.getElementById('map-container').style.opacity = 0.5;
+fetch('/analyze_route', {
+⋮----
+body: JSON.stringify({ start, end })
+⋮----
+.then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
+.then(data => {
+if (data.routes?.length)      displayRoute(data.routes[0]);
+if (data.route_details)       displayRouteDetails(data.route_details);
+⋮----
+console.error(err);
+alert(err.error || err);
+⋮----
+.finally(() => {
+document.getElementById('map-container').style.opacity = 1;
+⋮----
+/**
+ * Display route details in chat
+ */
+function displayRouteDetails(details) {
+const chat = document.getElementById('chat-container');
+⋮----
+details.forEach((d,i) => {
+⋮----
+`Safety: ${d.safety_score}/10 • Time: ${d.duration.toFixed(0)} min • Dist: ${d.distance}\n` +
+`First steps:\n${d.steps.join('\n')}`;
+addMessageToChat(msg, 'bot');
+⋮----
+/**
+ * AI chat
+ */
+function sendMessage() {
+const input = document.getElementById('user-input');
+const text  = input.value.trim();
+⋮----
+const btn = document.querySelector('#input-container button');
+⋮----
+addMessageToChat(text, 'user');
+⋮----
+fetch('/chat', {
+⋮----
+body: JSON.stringify({ message: text })
+⋮----
+.then(r => r.ok ? r.json() : r.json().then(e=>{throw e;}))
+.then(d => addMessageToChat(d.response || `Error: ${d.error}`, 'bot'))
+.catch(e => addMessageToChat(`Error: ${e.error||e}`, 'bot'))
+⋮----
+input.focus();
+⋮----
+/**
+ * Append chat bubbles
+ */
+function addMessageToChat(msg, sender) {
+const c = document.getElementById('chat-container');
+const el= document.createElement('div');
+el.classList.add('message', `${sender}-message`);
+el.innerHTML = msg.replace(/\n/g,'<br>');
+c.appendChild(el);
+el.scrollIntoView({ behavior:'smooth', block:'end' });
+⋮----
+/**
+ * Handle & speak a packet
+ */
+function handleVoicePacket(pkt) {
+addMessageToChat(pkt.text, 'bot');
+speechSynthesis.speak(new SpeechSynthesisUtterance(pkt.text));
+⋮----
+/**
+ * Wire up UI
+ */
+document.addEventListener('DOMContentLoaded', () => {
+document.getElementById('start-button').addEventListener('click', findSafeRoute);
+document.getElementById('user-input').addEventListener('keypress', e => {
+⋮----
+e.preventDefault();
+sendMessage();
+⋮----
+document.querySelector('#input-container button').addEventListener('click', sendMessage);
+⋮----
+addMessageToChat(
+</file>
+
+<file path="templates/index.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Drive AI</title>
+    
+    <!-- Link to custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+    
+    <!-- Initialize initMap function before loading Google Maps API -->
+    <script>
+        // Define initMap in the global scope before loading the API
+        window.initMap = function() {
+            // This will be overridden by the actual implementation in script.js
+            console.log('Map initialization started');
+        };
+
+        // Function to load Google Maps API (including geometry library)
+        function loadGoogleMapsAPI() {
+            const script = document.createElement('script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=places,directions,geometry`;
+            script.async = true;
+            script.defer = true;
+            script.onerror = function() {
+                console.error('Failed to load Google Maps API');
+            };
+            document.head.appendChild(script);
+        }
+
+        // Load the API when the DOM is ready
+        document.addEventListener('DOMContentLoaded', loadGoogleMapsAPI);
+    </script>
+</head>
+<body>
+    <!-- Main container for all content -->
+    <div id="container">
+        <!-- Page header -->
+        <h1>AI Smart Drive</h1>
+
+        <!-- User input section for route planning -->
+        <div id="input-fields">
+            <label for="start-location">Current Location:</label>
+            <input type="text" id="start-location" placeholder="Enter your current location">
+            
+            <label for="end-location">Destination:</label>
+            <input type="text" id="end-location" placeholder="Enter your destination">
+            
+            <button id="start-button" onclick="findSafeRoute()">Find Safe Route</button>
+            <!-- Simulate Drive button is injected by script.js -->
+        </div>
+
+        <!-- Map container with loading indicator -->
+        <div id="map-container">
+            <div id="map">
+                <div id="map-loading" style="display: none;">
+                    Loading map...
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat interface for AI assistant -->
+        <div id="chat-container"></div>
+        <div id="input-container">
+            <input type="text" id="user-input" placeholder="Ask about a route...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <!-- Load main JavaScript file -->
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+</file>
+
+<file path="README.md">
+# Smart Drive
+
+A route safety analysis tool that uses an ML model to evaluate the safety of different driving routes.
+
+
+## Features
+
+- Real-time route safety analysis using historical crash data
+- Multiple route options with safety scores
+- AI-powered chat assistant for route recommendations
+- Interactive map interface
+- Crash hotspot identification
+- Estimated travel times and distances
+- Route step-by-step instructions
+
+## Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/Smart-Drive.git
+   cd Smart-Drive
+   ```
+
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install the required packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Get your API keys:
+   - **Google Maps API Key**:
+     - Go to [Google Cloud Console](https://console.cloud.google.com/)
+     - Create a new project or select an existing one
+     - Enable the Directions API
+     - Create an API key in Credentials
+   
+   - **OpenAI API Key**:
+     - Go to [OpenAI Platform](https://platform.openai.com/)
+     - Create an account or sign in
+     - Generate an API key in your account settings
+
+5. Set up your environment variables:
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
+     ```
+   - Open `.env` and add your API keys:
+     ```
+     GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+     OPENAI_API_KEY=your_openai_api_key
+
+     ```
+
+## Usage
+
+1. Start the Flask application:
+   ```bash
+   python app.py
+   ```
+
+2. Open your web browser and navigate to:
+   ```
+   http://localhost:8080
+   ```
+
+3. Enter your starting and destination locations to get route analysis.
+
+## Important Notes
+
+- The application requires both Google Maps API and OpenAI API keys
+- Google Maps API has a free tier with generous limits for personal use
+- OpenAI API usage is billed based on token usage
+- Never share your API keys or commit them to version control
+- The `.env` file is already in `.gitignore` to prevent accidental commits
+
+## Project Structure
+
+```
+Smart-Drive/
+├── app.py                 # Main Flask application
+├── Route_Safety.py        # Route analysis and safety scoring
+├── requirements.txt       # Python dependencies
+├── static/               # Static files (CSS, JS)
+├── templates/            # HTML templates
+├── topic_prompts/        # AI chat prompts
+├── trainedModel.joblib   # Trained safety model
+└── data.csv             # Historical crash data
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> 05e0e97f09a5de4a5431905e2e75b4864b7399e4
+</file>
+
+<file path="app.py">
+# Configure logging
+⋮----
+logger = logging.getLogger(__name__)
+⋮----
+# Load environment variables
+⋮----
+# Initialize Flask
+app = Flask(__name__)
+⋮----
+# API keys
+⋮----
+google_maps_api_key = os.getenv('GOOGLE_MAPS_API_KEY')
+VOICE_MODEL = os.getenv('VOICE_MODEL', 'gpt-3.5-turbo')
+⋮----
+# Train safety model on startup
+⋮----
+crash_data = load_crash_data('data.csv')
+hotspot_data = identify_crash_hotspots(crash_data)
+safety_model = train_model(hotspot_data)
+⋮----
+@app.route('/')
+def home()
+⋮----
+@app.route('/analyze_route', methods=['POST'])
+def analyze_route()
+⋮----
+data = request.json or {}
+start = data.get('start')
+end = data.get('end')
+⋮----
+routes = get_google_routes(google_maps_api_key, start, end)
+⋮----
+details = []
+⋮----
+@app.route('/stream_route', methods=['POST'])
+def stream_route()
+⋮----
+"""
+    Dual‐mode SSE endpoint:
+      - If client sends a `gps_sequence`, we drive simulation mode,
+        generating voice updates via generate_voice_update().
+      - Otherwise, if client sends `start`+`end`, we pull Google steps
+        and call generate_enhanced_instruction() for each turn.
+      - In both cases we finally emit an arrival message.
+    """
+⋮----
+gps_sequence = data.get('gps_sequence')
+⋮----
+# Mode 1: direct gps_sequence → generate_voice_update
+⋮----
+seq = gps_sequence
+use_enhanced = False
+⋮----
+# Mode 2: start/end → fetch Google steps + generate_enhanced_instruction
+⋮----
+steps = routes[0]['legs'][0]['steps']
+seq = [{
+use_enhanced = True
+⋮----
+def event_stream()
+⋮----
+prev = seq[0]
+⋮----
+lat = point['latitude']
+lng = point['longitude']
+⋮----
+# Turn‑by‑turn LLM instructions
+instr = generate_enhanced_instruction(
+⋮----
+# Continuous‐drive voice updates
+instr = generate_voice_update(
+⋮----
+packet = {'text': instr, 'latitude': lat, 'longitude': lng}
+⋮----
+prev = point
+⋮----
+# Final arrival message
+arrival = {
+⋮----
+@app.route('/test_openai', methods=['GET'])
+def test_openai()
+⋮----
+resp = openai.chat.completions.create(
+⋮----
+@app.route('/chat', methods=['POST'])
+def chat()
+⋮----
+user_msg = request.json.get('message')
+⋮----
+conversation = session.setdefault('conversation', [])
+⋮----
+initial = f.read()
+⋮----
+messages = (
+⋮----
+resp = openai.ChatCompletion.create(
+bot_msg = resp.choices[0].message.content
+⋮----
+@app.route('/clear_session', methods=['GET'])
+def clear_session()
+</file>
+
+</files>

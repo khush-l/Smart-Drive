@@ -1,162 +1,143 @@
 /**
- * Smart Drive AI - Main JavaScript File
- * Handles map initialization, route finding, chat, and enriched turn‑by‑turn simulation
+ * Handles map initialization, route finding, chat, and turn‑by‑turn simulation
  */
 
-// Global variables for map functionality
-let map;
-let directionsService;
-let directionsRenderer;
+/* ──────────────── Global state ──────────────── */
+let map, directionsService, directionsRenderer;
 
-// Simulation globals
+/* Simulation globals */
 let simulateBtn;
-let waypoints = [];          // google.maps.LatLng for each step end
-let voicePackets = [];       // { text, latitude, longitude }
-let marker;
-let traveledPath;
-let upcomingPath;
-let simulationInterval;
-let lastSpoken = '';
-let currentStart = '';
-let currentEnd = '';
+let waypoints        = [];   // google.maps.LatLng for each step end
+let voicePackets     = [];   // { text, latitude, longitude }
+let marker, traveledPath, upcomingPath, simulationInterval;
+let lastSpoken       = '';
 
-/**
- * Initialize the Google Map
- */
-window.initMap = function() {
+/* Route context */
+let currentStart      = '';
+let currentEnd        = '';
+let currentRouteIndex = 0;   // 0 = first route; updated to safest index
+let currentRouteObj   = null;/* remembers the safest route JSON */
+let drawnPolyline     = null;/* reference to the custom line on the map */
+
+/* ──────────────── Map init ──────────────── */
+window.initMap = function () {
   map = new google.maps.Map(document.getElementById('map'), {
     center: { lat: 30.2672, lng: -97.7431 },
     zoom: 12
   });
-  directionsService = new google.maps.DirectionsService();
-  directionsRenderer = new google.maps.DirectionsRenderer({ map });
+  directionsService  = new google.maps.DirectionsService();
+  directionsRenderer = new google.maps.DirectionsRenderer({
+    map,
+    suppressMarkers: true,   // we drop our own car marker
+    preserveViewport: true   // don’t auto‑zoom; we’ll fit bounds ourselves
+  });
 
-  // Create Simulate Drive button
-  simulateBtn = document.createElement('button');
-  simulateBtn.textContent = 'Simulate Drive';
-  simulateBtn.id = 'simulate-drive';
-  simulateBtn.disabled = true;
+  /* Simulate‑Drive button (injected so HTML stays clean) */
+  simulateBtn              = document.createElement('button');
+  simulateBtn.textContent  = 'Simulate Drive';
+  simulateBtn.id           = 'simulate-drive';
+  simulateBtn.disabled     = true;
   simulateBtn.style.marginLeft = '10px';
-  document.getElementById('input-fields').appendChild(simulateBtn);
+  document
+    .getElementById('input-fields')
+    .appendChild(simulateBtn);
   simulateBtn.addEventListener('click', simulateDrive);
 };
 
-/**
- * Display a route on the map and prepare for simulation
- */
+/* ──────────────── Route display & prep ──────────────── */
 function displayRoute(route) {
   if (!route?.legs?.length) {
-    console.error('Invalid route data');
-    return;
+    console.error('Invalid route data'); return;
   }
-  const request = {
-    origin:      route.legs[0].start_address,
-    destination: route.legs[0].end_address,
-    travelMode:  'DRIVING'
-  };
-  directionsService.route(request, (result, status) => {
-    if (status === 'OK') {
-      directionsRenderer.setDirections(result);
-      prepareSimulationFromSteps(route);
-    } else {
-      console.error('Directions request failed:', status);
-    }
+
+  /* ① Clear any previously drawn manual polyline */
+  drawnPolyline?.setMap(null);
+
+  /* ② Draw the overview_polyline so the map always matches the server’s route */
+  const fullPath =
+    google.maps.geometry.encoding.decodePath(route.overview_polyline.points);
+  drawnPolyline = new google.maps.Polyline({
+    path: fullPath, strokeColor: '#4285F4', strokeWeight: 5, map
   });
+
+  /* ③ Fit viewport neatly around that path */
+  const bounds = new google.maps.LatLngBounds();
+  fullPath.forEach(p => bounds.extend(p));
+  map.fitBounds(bounds);
+
+  /* ④ Store & continue with simulation prep */
+  currentRouteObj = route;
+  prepareSimulationFromSteps(route);
 }
 
-/**
- * Prepare step waypoints & prefetch enhanced voice packets
- */
 function prepareSimulationFromSteps(route) {
-  // Build google waypoints at each step's end_location
   const steps = route.legs[0].steps;
-  waypoints = steps.map(step =>
-    new google.maps.LatLng(
-      step.end_location.lat,
-      step.end_location.lng
-    )
+
+  /* Build waypoint list */
+  waypoints = steps.map(s =>
+    new google.maps.LatLng(s.end_location.lat, s.end_location.lng)
   );
 
-  // Fallback: Google’s raw turn instructions (stripped HTML)
-  const googleFallback = steps.map(step => ({
-    text: step.html_instructions
-             .replace(/<[^>]+>/g, '')
-             .replace(/&nbsp;/g, ' ')
-             .trim(),
-    latitude:  step.end_location.lat,
-    longitude: step.end_location.lng
+  /* Google fallback packets (raw html stripped) */
+  voicePackets = steps.map(s => ({
+    text: s.html_instructions.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim(),
+    latitude:  s.end_location.lat,
+    longitude: s.end_location.lng
   }));
-  voicePackets = googleFallback;
 
-  // Then asynchronously fetch the enriched SSE stream:
+  /* Async: fetch enriched packets (LLM + hotspot) */
   fetchEnhancedPackets()
-    .then(pkts => {
-      if (pkts.length) {
-        voicePackets = pkts;
-      }
-    })
-    .catch(err => {
-      console.warn('Enhanced stream failed, using Google fallback:', err);
-    });
+    .then(pkts => { if (pkts.length) voicePackets = pkts; })
+    .catch(err  => console.warn('Enhanced stream failed; using fallback', err));
 
-  // Enable simulate
   simulateBtn.disabled = false;
 }
 
-/**
- * Fetch SSE from /stream_route for enriched instructions + hotspot warnings
- */
+/* ──────────────── SSE fetch helper ──────────────── */
 async function fetchEnhancedPackets() {
   const resp = await fetch('/stream_route', {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ start: currentStart, end: currentEnd })
+    body: JSON.stringify({
+      start:       currentStart,
+      end:         currentEnd,
+      route_index: currentRouteIndex
+    })
   });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const reader  = resp.body.getReader();
+  const decode  = new TextDecoder();
+  let buffer    = '';
   const packets = [];
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      if (part.startsWith('data: ')) {
-        try {
-          packets.push(JSON.parse(part.slice(6)));
-        } catch {}
+    buffer += decode.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop();
+    chunks.forEach(chunk => {
+      if (chunk.startsWith('data: ')) {
+        try { packets.push(JSON.parse(chunk.slice(6))); } catch {}
       }
-    }
+    });
   }
   return packets;
 }
 
-/**
- * Animate the drive along step waypoints, 3s per step
- */
+/* ──────────────── Simulation (3 s per step) ──────────────── */
 function simulateDrive() {
   clearInterval(simulationInterval);
-  if (marker) marker.setMap(null);
-  if (traveledPath) traveledPath.setMap(null);
-  if (upcomingPath) upcomingPath.setMap(null);
+  [marker, traveledPath, upcomingPath].forEach(obj => obj?.setMap(null));
   lastSpoken = '';
 
   upcomingPath = new google.maps.Polyline({
-    path: waypoints,
-    strokeColor: '#ccc',
-    strokeWeight: 4,
-    map
+    path: waypoints, strokeColor: '#ccc', strokeWeight: 4, map
   });
   traveledPath = new google.maps.Polyline({
-    path: [],
-    strokeColor: '#007bff',
-    strokeWeight: 6,
-    map
+    path: [], strokeColor: '#007bff', strokeWeight: 6, map
   });
-
   marker = new google.maps.Marker({
     position: waypoints[0],
     map,
@@ -173,8 +154,8 @@ function simulateDrive() {
       clearInterval(simulationInterval);
       handleVoicePacket({
         text: 'You have arrived at your destination',
-        latitude: waypoints[waypoints.length - 1].lat(),
-        longitude: waypoints[waypoints.length - 1].lng()
+        latitude:  waypoints.at(-1).lat(),
+        longitude: waypoints.at(-1).lng()
       });
       return;
     }
@@ -190,120 +171,109 @@ function simulateDrive() {
       handleVoicePacket(pkt);
     }
     idx++;
-  }, 3000);  // 3 seconds per step
+  }, 3000);
 }
 
-/**
- * Fetch & render safe route + details
- */
+/* ──────────────── Server call: safest route & details ──────────────── */
 function findSafeRoute() {
-  const start = document.getElementById('start-location').value;
-  const end   = document.getElementById('end-location').value;
-  if (!start || !end) {
-    alert('Please enter both locations');
-    return;
-  }
+  const start = document.getElementById('start-location').value.trim();
+  const end   = document.getElementById('end-location').value.trim();
+  if (!start || !end) return alert('Please enter both locations');
+
   currentStart = start;
   currentEnd   = end;
+
   document.getElementById('map-container').style.opacity = 0.5;
   fetch('/analyze_route', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ start, end })
   })
   .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
   .then(data => {
-    if (data.routes?.length)      displayRoute(data.routes[0]);
-    if (data.route_details)       displayRouteDetails(data.route_details);
+    /* Determine safest route */
+    currentRouteIndex =
+      data.route_details.reduce(
+        (best, cur, i, arr) => cur.safety_score > arr[best].safety_score ? i : best,
+        0
+      );
+
+    displayRoute(data.routes[currentRouteIndex]);
+    displayRouteDetails(data.route_details);
   })
   .catch(err => {
-    console.error(err);
-    alert(err.error || err);
+    console.error(err); alert(err.error || err);
   })
   .finally(() => {
     document.getElementById('map-container').style.opacity = 1;
   });
 }
 
-/**
- * Display route details in chat
- */
+/* ──────────────── Chat helpers ──────────────── */
 function displayRouteDetails(details) {
   const chat = document.getElementById('chat-container');
   chat.innerHTML = '';
-  details.forEach((d,i) => {
-    const msg = `Route ${i+1}:\n` +
-                `Safety: ${d.safety_score}/10 • Time: ${d.duration.toFixed(0)} min • Dist: ${d.distance}\n` +
-                `First steps:\n${d.steps.join('\n')}`;
+  details.forEach((d, i) => {
+    const star = i === currentRouteIndex ? '★ ' : '';
+    const msg =
+      `${star}Route ${i + 1}:\n` +
+      `Safety ${d.safety_score}/10 • Time ${d.duration.toFixed(0)} min • Dist ${d.distance}\n` +
+      `First steps:\n${d.steps.join('\n')}`;
     addMessageToChat(msg, 'bot');
   });
 }
 
-/**
- * AI chat
- */
 function sendMessage() {
   const input = document.getElementById('user-input');
-  const text  = input.value.trim();
-  if (!text) return;
+  const txt   = input.value.trim();
+  if (!txt) return;
+
   input.disabled = true;
   const btn = document.querySelector('#input-container button');
   btn.disabled = true; btn.textContent = 'Sending…';
-  addMessageToChat(text, 'user');
-  input.value = '';
+  addMessageToChat(txt, 'user'); input.value = '';
 
   fetch('/chat', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify({ message: text })
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: txt })
   })
-  .then(r => r.ok ? r.json() : r.json().then(e=>{throw e;}))
-  .then(d => addMessageToChat(d.response || `Error: ${d.error}`, 'bot'))
-  .catch(e => addMessageToChat(`Error: ${e.error||e}`, 'bot'))
+  .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
+  .then(d => addMessageToChat(d.response ?? `Error: ${d.error}`, 'bot'))
+  .catch(e => addMessageToChat(`Error: ${e.error || e}`, 'bot'))
   .finally(() => {
     input.disabled = false;
-    btn.disabled = false;
+    btn.disabled   = false;
     btn.textContent = 'Send';
     input.focus();
   });
 }
 
-/**
- * Append chat bubbles
- */
-function addMessageToChat(msg, sender) {
-  const c = document.getElementById('chat-container');
-  const el= document.createElement('div');
-  el.classList.add('message', `${sender}-message`);
-  el.innerHTML = msg.replace(/\n/g,'<br>');
+function addMessageToChat(msg, who) {
+  const c  = document.getElementById('chat-container');
+  const el = document.createElement('div');
+  el.classList.add('message', `${who}-message`);
+  el.innerHTML = msg.replace(/\n/g, '<br>');
   c.appendChild(el);
-  el.scrollIntoView({ behavior:'smooth', block:'end' });
+  el.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-/**
- * Handle & speak a packet
- */
 function handleVoicePacket(pkt) {
   addMessageToChat(pkt.text, 'bot');
   speechSynthesis.speak(new SpeechSynthesisUtterance(pkt.text));
 }
 
-/**
- * Wire up UI
- */
+/* ──────────────── DOM wiring ──────────────── */
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('start-button').addEventListener('click', findSafeRoute);
   document.getElementById('user-input').addEventListener('keypress', e => {
-    if (e.key==='Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
   document.querySelector('#input-container button').addEventListener('click', sendMessage);
 
   addMessageToChat(
-    "Hello! I'm your Smart Drive AI assistant. " +
-    "Enter your start & end, then click ‘Simulate Drive’ to see turn‑by‑turn directions and hotspot alerts.",
+    "Hello! I’m your Smart Drive AI assistant.\n" +
+    "Enter a start & destination, then click “Simulate Drive” to hear turn‑by‑turn directions and crash‑zone alerts.",
     'bot'
   );
 });

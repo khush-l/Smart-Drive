@@ -53,15 +53,6 @@ def home():
     return render_template("index.html", google_maps_api_key=google_maps_api_key)
 
 
-# ---------- 0. serve crash‑zone polygons ----------
-# (4‑line helper so we don’t have to move the file)
-@app.route("/static/high_crash_zones.geojson")
-def serve_high_crash_zones():
-    """Return the GeoJSON polygon clusters used by the front‑end overlay"""
-    path = os.path.join(app.root_path, "output", "high_crash_zones.geojson")
-    return send_file(path, mimetype="application/geo+json")
-
-
 # ---------- 1. analyse multiple routes ----------
 @app.route("/analyze_route", methods=["POST"])
 def analyze_route():

@@ -1,4 +1,12 @@
-from flask import Flask, render_template, request, jsonify, session, Response
+from flask import (
+    Flask,
+    render_template,
+    request,
+    jsonify,
+    session,
+    Response,
+    send_file,          # ← NEW
+)
 from flask_session import Session
 import openai, os, json, logging, numpy as np
 from dotenv import load_dotenv
@@ -13,13 +21,13 @@ from Route_Safety import (
     generate_enhanced_instruction,
 )
 
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 # basic setup
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-load_dotenv()  # .env
+load_dotenv()                        # .env
 openai.api_key        = os.getenv("OPENAI_API_KEY")
 google_maps_api_key   = os.getenv("GOOGLE_MAPS_API_KEY")
 VOICE_MODEL           = os.getenv("VOICE_MODEL", "gpt-3.5-turbo")
@@ -28,21 +36,30 @@ app = Flask(__name__)
 app.config.update(SESSION_PERMANENT=False, SESSION_TYPE="filesystem")
 Session(app)
 
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 # ML safety model (warm‑up at startup)
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 logger.info("Training safety model …")
 _safety_model = train_model(
     identify_crash_hotspots(load_crash_data("data.csv"))
 )
 logger.info("✓ safety model ready")
 
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 # routes
-# --------------------------------------------------
+# ──────────────────────────────────────────────
 @app.route("/")
 def home():
     return render_template("index.html", google_maps_api_key=google_maps_api_key)
+
+
+# ---------- 0. serve crash‑zone polygons ----------
+# (4‑line helper so we don’t have to move the file)
+@app.route("/static/high_crash_zones.geojson")
+def serve_high_crash_zones():
+    """Return the GeoJSON polygon clusters used by the front‑end overlay"""
+    path = os.path.join(app.root_path, "output", "high_crash_zones.geojson")
+    return send_file(path, mimetype="application/geo+json")
 
 
 # ---------- 1. analyse multiple routes ----------

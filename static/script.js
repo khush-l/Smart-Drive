@@ -20,9 +20,12 @@ let currentRouteObj   = null;
 let drawnPolyline     = null;
 let currentRoutes     = [];
 
-/* Heat‑map */
-let hotspotLayer  = null;   // google.maps.visualization.HeatmapLayer
-let hotspotsReady = false;
+/* Heat‑map & crash‑zone layers */
+let hotspotLayer     = null;  // google.maps.visualization.HeatmapLayer
+let hotspotsReady    = false;
+
+let crashZoneLayer   = null;  // google.maps.Data
+let crashZonesReady  = false;
 
 /* Simulation timing */
 const SIM_TICK_MS = 6000;   // pause 6 s at each checkpoint
@@ -73,12 +76,33 @@ async function ensureHotspotLayer () {
     }));
     hotspotLayer = new google.maps.visualization.HeatmapLayer({
       data: pts,
-      radius: 25,
-      opacity: 0.6
+      radius: 15,
+      opacity: 0.45
     });
     hotspotsReady = true;
   } catch (e) {
     console.error('Failed to load hotspot heat‑map:', e);
+  }
+}
+
+/* ──────────────── Crash‑zone helpers ──────────────── */
+async function ensureCrashZoneLayer () {
+  if (crashZonesReady) return;
+  try {
+    const resp = await fetch('/static/high_crash_zones.geojson');
+    const geo  = await resp.json();
+    crashZoneLayer = new google.maps.Data({ map: null });
+    crashZoneLayer.addGeoJson(geo);
+    crashZoneLayer.setStyle({
+      fillColor: '#ff0000',
+      fillOpacity: 0.25,
+      strokeColor: '#ff0000',
+      strokeOpacity: 0.6,
+      strokeWeight: 1
+    });
+    crashZonesReady = true;
+  } catch (e) {
+    console.error('Failed to load crash‑zone polygons:', e);
   }
 }
 
@@ -322,15 +346,19 @@ function handleVoicePacket(pkt) {
 
 /* ──────────────── DOM wiring ──────────────── */
 document.addEventListener('DOMContentLoaded', () => {
-  /* Heat‑map toggle */
-  const toggle = document.getElementById('toggle-hotspots');
+  /* Heat‑map + crash‑zone toggle */
+  const toggle = document.getElementById('toggle-hotspots');   
   if (toggle) {
     toggle.addEventListener('change', async e => {
       if (e.target.checked) {
         await ensureHotspotLayer();
         hotspotLayer?.setMap(map);
+
+        await ensureCrashZoneLayer();
+        crashZoneLayer?.setMap(map);
       } else {
         hotspotLayer?.setMap(null);
+        crashZoneLayer?.setMap(null);
       }
     });
   }
@@ -343,7 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   addMessageToChat(
     "Hello! I’m your Smart Drive AI assistant.\n" +
-    "Enter a start & destination, click **Find Safe Route** to compare options, toggle the hotspot heat‑map if desired, then choose a route and click “Simulate Drive”.",
+    "Enter a start & destination, click **Find Safe Route** to compare options, toggle the hotspot/crash‑zone overlay if desired, then choose a route and click “Simulate Drive”.",
     'bot'
   );
 });

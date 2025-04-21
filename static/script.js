@@ -1,258 +1,377 @@
 /**
- * Smart Drive AI - Main JavaScript File
- * Handles map initialization, route finding, and chat functionality
+ * Handles map initialization, route finding, chat, heat‑map, and turn‑by‑turn simulation
  */
 
-// Global variables for map functionality
-let map;                    // Google Maps instance
-let directionsService;      // Google Maps Directions Service
-let directionsRenderer;     // Google Maps Directions Renderer
+/* ──────────────── Global state ──────────────── */
+let map, directionsService, directionsRenderer;
 
-/**
- * Initialize the Google Map
- * Called automatically when the Google Maps API loads
- */
-window.initMap = function() {
-    // Initialize the map centered on Austin, TX
-    map = new google.maps.Map(document.getElementById('map'), {
-        center: { lat: 30.2672, lng: -97.7431 }, // Austin coordinates
-        zoom: 12
-    });
+/* Simulation globals */
+let simulateBtn;
+let waypoints        = [];   // google.maps.LatLng for each step end
+let voicePackets     = [];   // { text, latitude, longitude }
+let marker, traveledPath, upcomingPath, simulationInterval;
+let lastSpoken       = '';
 
-    // Initialize directions service and renderer
-    directionsService = new google.maps.DirectionsService();
-    directionsRenderer = new google.maps.DirectionsRenderer({
-        map: map
+/* Route context */
+let currentStart      = '';
+let currentEnd        = '';
+let currentRouteIndex = 0;
+let currentRouteObj   = null;
+let drawnPolyline     = null;
+let currentRoutes     = [];
+
+/* Heat‑map & crash‑zone layers */
+let hotspotLayer     = null;  // google.maps.visualization.HeatmapLayer
+let hotspotsReady    = false;
+
+let crashZoneLayer   = null;  // google.maps.Data
+let crashZonesReady  = false;
+
+/* Simulation timing */
+const SIM_TICK_MS = 6000;   // pause 6 s at each checkpoint
+
+/* helper to grab/insert the picker container */
+const routePickerRoot = () =>
+  document.getElementById('route-picker') ??
+  (() => {
+    const el = document.createElement('div');
+    el.id = 'route-picker';
+    document.getElementById('input-fields').appendChild(el);
+    return el;
+  })();
+
+/* ──────────────── Map init ──────────────── */
+window.initMap = function () {
+  map = new google.maps.Map(document.getElementById('map'), {
+    center: { lat: 30.2672, lng: -97.7431 },
+    zoom: 12
+  });
+
+  directionsService  = new google.maps.DirectionsService();
+  directionsRenderer = new google.maps.DirectionsRenderer({
+    map,
+    suppressMarkers: true,
+    preserveViewport: true
+  });
+
+  /* Simulate‑Drive button */
+  simulateBtn             = document.createElement('button');
+  simulateBtn.textContent = 'Simulate Drive';
+  simulateBtn.id          = 'simulate-drive';
+  simulateBtn.disabled    = true;
+  simulateBtn.style.marginLeft = '10px';
+  document.getElementById('input-fields').appendChild(simulateBtn);
+  simulateBtn.addEventListener('click', simulateDrive);
+};
+
+/* ──────────────── Heat‑map helpers ──────────────── */
+async function ensureHotspotLayer () {
+  if (hotspotsReady) return;
+  try {
+    const resp = await fetch('/static/hotspots.json');
+    const data = await resp.json();           // [{lat,lng,weight}]
+    const pts  = data.map(d => ({
+      location: new google.maps.LatLng(d.lat, d.lng),
+      weight  : d.weight
+    }));
+    hotspotLayer = new google.maps.visualization.HeatmapLayer({
+      data: pts,
+      radius: 9,
+      opacity: 0.45
     });
+    hotspotsReady = true;
+  } catch (e) {
+    console.error('Failed to load hotspot heat‑map:', e);
+  }
 }
 
-/**
- * Display a route on the map
- * @param {Object} route - The route data from Google Maps API
- */
+/* ──────────────── Crash‑zone helpers ──────────────── */
+async function ensureCrashZoneLayer () {
+  if (crashZonesReady) return;
+  try {
+    const resp = await fetch('/static/high_crash_zones.geojson');
+    const geo  = await resp.json();
+    crashZoneLayer = new google.maps.Data({ map: null });
+    crashZoneLayer.addGeoJson(geo);
+    crashZoneLayer.setStyle({
+      fillColor: '#ff0000',
+      fillOpacity: 0.25,
+      strokeColor: '#ff0000',
+      strokeOpacity: 0.6,
+      strokeWeight: 1
+    });
+    crashZonesReady = true;
+  } catch (e) {
+    console.error('Failed to load crash‑zone polygons:', e);
+  }
+}
+
+/* ──────────────── Route display & prep ──────────────── */
 function displayRoute(route) {
-    if (!route || !route.legs || route.legs.length === 0) {
-        console.error('Invalid route data');
-        return;
+  if (!route?.legs?.length) { console.error('Invalid route data'); return; }
+
+  drawnPolyline?.setMap(null);
+
+  const fullPath =
+    google.maps.geometry.encoding.decodePath(route.overview_polyline.points);
+  drawnPolyline = new google.maps.Polyline({
+    path: fullPath,
+    strokeColor: '#4285F4',
+    strokeWeight: 5,
+    map
+  });
+
+  const bounds = new google.maps.LatLngBounds();
+  fullPath.forEach(p => bounds.extend(p));
+  map.fitBounds(bounds);
+
+  currentRouteObj = route;
+  prepareSimulationFromSteps(route);
+}
+
+function prepareSimulationFromSteps(route) {
+  const steps = route.legs[0].steps;
+
+  waypoints = steps.map(s =>
+    new google.maps.LatLng(s.end_location.lat, s.end_location.lng)
+  );
+
+  voicePackets = steps.map(s => ({
+    text      : s.html_instructions.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim(),
+    latitude  : s.end_location.lat,
+    longitude : s.end_location.lng
+  }));
+
+  fetchEnhancedPackets()
+    .then(pkts => { if (pkts.length) voicePackets = pkts; })
+    .catch(err  => console.warn('Enhanced stream failed; using fallback', err));
+
+  simulateBtn.disabled = false;
+}
+
+/* ──────────────── SSE fetch helper ──────────────── */
+async function fetchEnhancedPackets() {
+  const resp = await fetch('/stream_route', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({
+      start      : currentStart,
+      end        : currentEnd,
+      route_index: currentRouteIndex
+    })
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const reader  = resp.body.getReader();
+  const decode  = new TextDecoder();
+  let buffer    = '';
+  const packets = [];
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decode.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop();
+    chunks.forEach(chunk => {
+      if (chunk.startsWith('data: ')) {
+        try { packets.push(JSON.parse(chunk.slice(6))); } catch {}
+      }
+    });
+  }
+  return packets;
+}
+
+/* ──────────────── Simulation ──────────────── */
+function simulateDrive() {
+  clearInterval(simulationInterval);
+  [marker, traveledPath, upcomingPath].forEach(obj => obj?.setMap?.(null));
+  lastSpoken = '';
+
+  upcomingPath = new google.maps.Polyline({ path: waypoints });
+  traveledPath = new google.maps.Polyline({ path: [] });
+
+  marker = new google.maps.Marker({
+    position: waypoints[0],
+    map,
+    icon: {
+      url: 'https://maps.gstatic.com/intl/en_us/mapfiles/markers2/measle_blue.png',
+      scaledSize: new google.maps.Size(12, 12)
+    }
+  });
+  map.panTo(waypoints[0]);
+
+  let idx = 0;
+
+  simulationInterval = setInterval(() => {
+    /* Announce NEXT checkpoint */
+    const nextIdx = idx + 1;
+    if (nextIdx < voicePackets.length) {
+      const pkt = voicePackets[nextIdx];
+      if (pkt.text !== lastSpoken) {
+        lastSpoken = pkt.text;
+        handleVoicePacket(pkt);
+      }
     }
 
-    // Create a DirectionsRequest object for the route
-    const request = {
-        origin: route.legs[0].start_address,
-        destination: route.legs[0].end_address,
-        travelMode: 'DRIVING'
-    };
+    /* Move icon to CURRENT checkpoint */
+    if (idx >= waypoints.length) {
+      clearInterval(simulationInterval);
+      handleVoicePacket({
+        text     : 'You have arrived at your destination',
+        latitude : waypoints.at(-1).lat(),
+        longitude: waypoints.at(-1).lng()
+      });
+      return;
+    }
 
-    // Get and display the route on the map
-    directionsService.route(request, function(result, status) {
-        if (status === 'OK') {
-            directionsRenderer.setDirections(result);
-        } else {
-            console.error('Directions request failed:', status);
-        }
-    });
+    const pos = waypoints[idx];
+    marker.setPosition(pos);
+    traveledPath.getPath().push(pos);
+    upcomingPath.getPath().removeAt(0);
+    map.panTo(pos);
+    idx++;
+  }, SIM_TICK_MS);
 }
 
-/**
- * Display route details in the chat container
- * @param {Array} routeDetails - Array of route detail objects
- */
-function displayRouteDetails(routeDetails) {
-    const chatContainer = document.getElementById('chat-container');
-    
-    // Clear previous route details
-    chatContainer.innerHTML = '';
-    
-    // Add each route's details to the chat
-    routeDetails.forEach((detail, index) => {
-        const message = `Route ${index + 1}:\n` +
-                       `Safety Score: ${detail.safety_score}/10\n` +
-                       `Duration: ${detail.duration} minutes\n` +
-                       `Distance: ${detail.distance}\n` +
-                       `First steps:\n${detail.steps.join('\n')}`;
-        
-        addMessageToChat(message, 'bot');
+/* ──────────────── Route‑picker UI ──────────────── */
+function renderRoutePicker(details) {
+  const root = routePickerRoot();
+  root.innerHTML = '';
+  if (!details.length) return;
+
+  details.forEach((d, i) => {
+    const card = document.createElement('label');
+    card.className = 'route-card';
+    card.innerHTML =
+      `<input type="radio" name="route-choice" value="${i}" ${i === currentRouteIndex ? 'checked' : ''}>
+       <strong>Route ${i + 1}</strong><br>
+       Safety ${d.safety_score}/10<br>
+       Time ${d.duration.toFixed(0)} min<br>
+       Distance ${d.distance}`;
+    card.querySelector('input').addEventListener('change', () => {
+      currentRouteIndex = i;
+      displayRoute(currentRoutes[currentRouteIndex]);
     });
+    root.appendChild(card);
+  });
 }
 
-/**
- * Find the safest route between two locations
- * Makes API call to backend and displays results
- */
+/* ──────────────── Server call: safest route & details ──────────────── */
 function findSafeRoute() {
-    // Get start and end locations from input fields
-    const startLocation = document.getElementById('start-location').value;
-    const endLocation = document.getElementById('end-location').value;
+  const start = document.getElementById('start-location').value.trim();
+  const end   = document.getElementById('end-location').value.trim();
+  if (!start || !end) return alert('Please enter both locations');
 
-    // Validate inputs
-    if (!startLocation || !endLocation) {
-        alert('Please enter both start and end locations');
-        return;
-    }
+  currentStart = start;
+  currentEnd   = end;
 
-    // Show loading state
-    document.getElementById('map-container').style.opacity = '0.5';
-    
-    // Make request to backend for route analysis
-    fetch('/analyze_route', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            start: startLocation,
-            end: endLocation
-        }),
-    })
-    .then(response => {
-        // Handle non-200 responses
-        if (!response.ok) {
-            return response.json().then(data => {
-                throw new Error(data.error || 'Network response was not ok');
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        // Handle backend errors
-        if (data.error) {
-            alert(data.error);
-            return;
-        }
-        
-        // Display route on map if available
-        if (data.routes && data.routes.length > 0) {
-            displayRoute(data.routes[0]); // Display the first route
-        }
-        
-        // Display route details if available
-        if (data.route_details && data.route_details.length > 0) {
-            displayRouteDetails(data.route_details);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('An error occurred while finding the route: ' + error.message);
-    })
-    .finally(() => {
-        // Reset loading state
-        document.getElementById('map-container').style.opacity = '1';
-    });
+  document.getElementById('map-container').style.opacity = 0.5;
+  fetch('/analyze_route', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ start, end })
+  })
+  .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
+  .then(data => {
+    currentRoutes = data.routes;
+    currentRouteIndex = data.route_details.reduce(
+      (best, cur, i, arr) => cur.safety_score > arr[best].safety_score ? i : best,
+      0
+    );
+
+    displayRoute(currentRoutes[currentRouteIndex]);
+    displayRouteDetails(data.route_details);
+    renderRoutePicker(data.route_details);
+  })
+  .catch(err => { console.error(err); alert(err.error || err); })
+  .finally(() => {
+    document.getElementById('map-container').style.opacity = 1;
+  });
 }
 
-// Main prediction loop
-async function loop() {
-    webcam.update();
-    await predict();
-    window.requestAnimationFrame(loop);
+/* ──────────────── Chat helpers ──────────────── */
+function displayRouteDetails(details) {
+  const chat = document.getElementById('chat-container');
+  chat.innerHTML = '';
+  details.forEach((d, i) => {
+    const star = i === currentRouteIndex ? '★ ' : '';
+    const msg =
+      `${star}Route ${i + 1}:\n` +
+      `Safety ${d.safety_score}/10 • Time ${d.duration.toFixed(0)} min • Dist ${d.distance}\n` +
+      `First steps:\n${d.steps.join('\n')}`;
+    addMessageToChat(msg, 'bot');
+  });
 }
 
-// Predict function
-async function predict() {
-    const prediction = await model.predict(webcam.canvas);
-    for (let i = 0; i < maxPredictions; i++) {
-        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-        labelContainer.childNodes[i].innerHTML = classPrediction;
-        if (prediction[i].probability > 0.5) {
-            currentAnimal = prediction[i].className;
-        }
-    }
-}
-
-/**
- * Send a message to the AI chat
- * Handles user input and displays responses
- */
 function sendMessage() {
-    const userInput = document.getElementById("user-input");
-    const message = userInput.value.trim();
-    
-    // Don't send empty messages
-    if (message === "") return;
+  const input = document.getElementById('user-input');
+  const txt   = input.value.trim();
+  if (!txt) return;
 
-    // Disable input and show loading state
-    userInput.disabled = true;
-    const sendButton = document.querySelector('#input-container button');
-    sendButton.disabled = true;
-    sendButton.textContent = 'Sending...';
+  input.disabled = true;
+  const btn = document.querySelector('#input-container button');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  addMessageToChat(txt, 'user'); input.value = '';
 
-    // Add user message to chat
-    addMessageToChat(message, 'user');
-    userInput.value = "";
-
-    // Send to backend
-    fetch('/chat', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            message: message
-        }),
-    })
-    .then(response => {
-        if (!response.ok) {
-            return response.json().then(data => {
-                throw new Error(data.error || 'Network response was not ok');
-            });
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.error) {
-            console.error('Server error:', data.error);
-            addMessageToChat('Error: ' + data.error, 'bot');
-        } else {
-            addMessageToChat(data.response, 'bot');
-        }
-    })
-    .catch((error) => {
-        console.error('Error:', error);
-        addMessageToChat('Error: ' + error.message, 'bot');
-    })
-    .finally(() => {
-        // Re-enable input and button
-        userInput.disabled = false;
-        sendButton.disabled = false;
-        sendButton.textContent = 'Send';
-        userInput.focus();
-    });
+  fetch('/chat', {
+    method : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body   : JSON.stringify({ message: txt })
+  })
+  .then(r => r.ok ? r.json() : r.json().then(e => { throw e; }))
+  .then(d => addMessageToChat(d.response ?? `Error: ${d.error}`, 'bot'))
+  .catch(e => addMessageToChat(`Error: ${e.error || e}`, 'bot'))
+  .finally(() => {
+    input.disabled   = false;
+    btn.disabled     = false;
+    btn.textContent  = 'Send';
+    input.focus();
+  });
 }
 
-/**
- * Add a message to the chat container
- * @param {string} message - The message text
- * @param {string} sender - 'user' or 'bot'
- */
-function addMessageToChat(message, sender) {
-    const chatContainer = document.getElementById("chat-container");
-    const messageElement = document.createElement("div");
-    messageElement.classList.add("message", sender + "-message");
-    messageElement.innerHTML = message.replace(/\n/g, '<br>'); // Convert newlines to <br> tags
-    chatContainer.appendChild(messageElement);
-    
-    // Scroll to the latest message
-    messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
+function addMessageToChat(msg, who) {
+  const c  = document.getElementById('chat-container');
+  const el = document.createElement('div');
+  el.classList.add('message', `${who}-message`);
+  el.innerHTML = msg.replace(/\n/g, '<br>');
+  c.appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-/**
- * Initialize event listeners when the DOM is loaded
- */
-document.addEventListener('DOMContentLoaded', function() {
-    const userInput = document.getElementById("user-input");
-    const sendButton = document.querySelector('#input-container button');
+function handleVoicePacket(pkt) {
+  addMessageToChat(pkt.text, 'bot');
+  speechSynthesis.speak(new SpeechSynthesisUtterance(pkt.text));
+}
 
-    // Enter key event listener for chat input
-    userInput.addEventListener("keypress", function(event) {
-        if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            sendMessage();
-        }
+/* ──────────────── DOM wiring ──────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  /* Heat‑map + crash‑zone toggle */
+  const toggle = document.getElementById('toggle-hotspots');   
+  if (toggle) {
+    toggle.addEventListener('change', async e => {
+      if (e.target.checked) {
+        await ensureHotspotLayer();
+        hotspotLayer?.setMap(map);
+
+        await ensureCrashZoneLayer();
+        crashZoneLayer?.setMap(map);
+      } else {
+        hotspotLayer?.setMap(null);
+        crashZoneLayer?.setMap(null);
+      }
     });
+  }
 
-    // Send button click event listener
-    sendButton.addEventListener("click", sendMessage);
+  document.getElementById('start-button').addEventListener('click', findSafeRoute);
+  document.getElementById('user-input').addEventListener('keypress', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  document.querySelector('#input-container button').addEventListener('click', sendMessage);
 
-    // Display welcome message
-    addMessageToChat("Hello! I'm your Smart Drive AI assistant. I can help you find safe routes and answer questions about your journey. How can I help you today?", 'bot');
+  addMessageToChat(
+    "Hello! I’m your Smart Drive AI assistant.\n" +
+    "Enter a start & destination, click **Find Safe Route** to compare options, toggle the hotspot/crash‑zone overlay if desired, then choose a route and click “Simulate Drive”.",
+    'bot'
+  );
 });

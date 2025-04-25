@@ -102,7 +102,9 @@ def calculate_safety_score(route: dict, model) -> tuple[float, float]:
             df = pd.DataFrame([[lat, lng]], columns=['lat_bin', 'lng_bin'])
             scores.append(model.predict(df)[0])
     avg = np.mean(scores) if scores else 0
-    return min(max(10 - avg, 1), 10), total_min
+    score = min(max(10 - avg, 1), 10)
+    score = float(f"{score:.3f}")  # ensure x.xxx format
+    return score, total_min
 
 # ─────────────── 3. HOTSPOT HELPERS & ENHANCED INSTRUCTIONS ────────────────
 def load_hotspot_polygons(geojson_path="output_files/high_crash_zones.geojson"):
